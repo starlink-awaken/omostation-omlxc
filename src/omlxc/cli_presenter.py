@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Final, cast
 from unicodedata import category
 
+from omlxc.cli_guide import validate_public_identifier
 from omlxc.client import RemoteError
 
 MAX_SECTION_LINES: Final = 8
@@ -194,6 +195,21 @@ def render_sections(sections: tuple[HumanSection, ...]) -> str:
     return "\n\n".join(
         "\n".join((section.title, *(f"  {line}" for line in section.lines)))
         for section in validated_sections
+    )
+
+
+def render_lifecycle_help(model_id: str) -> str:
+    """Render static lifecycle education without invoking a model operation."""
+    identifier = validate_public_identifier(model_id)
+    HumanSection("Safe lifecycle plan", (identifier,))
+    return "\n".join(
+        (
+            "Safe lifecycle plan",
+            f"  Load: omlxc models load {identifier} --yes",
+            "  Impact: reserves memory and may start a backend model.",
+            "  Confirmation: R1; review the model ID before using --yes.",
+            f"  Rollback: omlxc models unload {identifier} --yes",
+        )
     )
 
 

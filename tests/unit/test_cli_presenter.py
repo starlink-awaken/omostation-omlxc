@@ -17,6 +17,7 @@ from omlxc.cli_presenter import (
     HumanSection,
     Severity,
     render_error,
+    render_lifecycle_help,
     render_sections,
     status_sections,
 )
@@ -346,3 +347,25 @@ def test_status_sections_reject_malformed_data_without_echoing_it(data: object) 
         status_sections(data)
 
     assert str(data) not in str(exc_info.value)
+
+
+def test_lifecycle_help_has_exact_static_safe_plan() -> None:
+    rendered = render_lifecycle_help("local/model-a")
+
+    assert rendered == (
+        "Safe lifecycle plan\n"
+        "  Load: omlxc models load local/model-a --yes\n"
+        "  Impact: reserves memory and may start a backend model.\n"
+        "  Confirmation: R1; review the model ID before using --yes.\n"
+        "  Rollback: omlxc models unload local/model-a --yes"
+    )
+    assert "\x1b[" not in rendered
+    assert len(rendered) <= MAX_LINE_LENGTH * 5
+
+
+@pytest.mark.parametrize("model_id", ("../private", "/absolute", "local/\x00model", "m\u00f6del"))
+def test_lifecycle_help_rejects_unsafe_model_ids_without_echoing_them(model_id: str) -> None:
+    with pytest.raises(ValueError, match="^guide input is invalid$") as exc_info:
+        render_lifecycle_help(model_id)
+
+    assert model_id not in str(exc_info.value)
