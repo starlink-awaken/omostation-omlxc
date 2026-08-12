@@ -56,8 +56,10 @@ from .service import (
 app = typer.Typer(
     add_completion=False,
     help="Private local compute-hub CLI and keyboard-first cockpit.",
+    epilog="Quick start: omlxc status\nGuided help: omlxc guide",
     invoke_without_command=True,
     no_args_is_help=False,
+    rich_markup_mode=None,
 )
 nodes_app = typer.Typer(help="Inspect configured compute nodes.")
 models_app = typer.Typer(help="Inspect and control daemon model placements.")

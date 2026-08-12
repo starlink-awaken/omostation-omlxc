@@ -503,6 +503,9 @@ def test_help_exposes_complete_public_command_tree() -> None:
     result = runner.invoke(app, ["--help"])
 
     assert result.exit_code == 0
+    assert app.info.epilog == "Quick start: omlxc status\nGuided help: omlxc guide"
+    assert "Quick start: omlxc status" in result.stdout
+    assert "Guided help: omlxc guide" in result.stdout
     for command in (
         "status",
         "guide",
@@ -531,6 +534,47 @@ def test_help_exposes_complete_public_command_tree() -> None:
         help_result = runner.invoke(app, [group, "--help"])
         assert help_result.exit_code == 0
         assert all(command in help_result.stdout for command in commands)
+
+
+def test_guide_help_is_noninteractive_and_does_not_access_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden_client(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("guide --help accessed the daemon")
+
+    monkeypatch.setattr(cli_module, "_client_factory", forbidden_client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: False)
+    monkeypatch.setattr(
+        typer,
+        "prompt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("guide --help prompted")),
+    )
+
+    result = runner.invoke(app, ["guide", "--help"])
+
+    assert result.exit_code == 0
+    assert "Choose a bounded, read-only workflow" in result.stdout
+    assert result.stderr == ""
+
+
+def test_readme_documents_guided_cli_quick_start_contract() -> None:
+    readme = (Path(__file__).parents[2] / "README.md").read_text()
+
+    section_start = readme.index("## Guided CLI quick start")
+    section = readme[section_start:]
+    section_flat = " ".join(section.split())
+    assert "omlxc status        # cached daemon health plus safe next commands" in section
+    assert "omlxc guide         # bounded, read-only TTY workflow" in section
+    assert "omlxc status --json # unchanged machine contract" in section
+    for statement in (
+        "TTY-only and bounded",
+        "exactly six goals",
+        "never mutates models, jobs, services, or configuration",
+        "prints commands but does not execute them",
+        "no-argument TUI remains the interactive entry",
+        "status --json is the automation/machine entry",
+    ):
+        assert statement in section_flat
 
 
 def test_no_args_uses_tui_only_for_interactive_tty(monkeypatch: pytest.MonkeyPatch) -> None:

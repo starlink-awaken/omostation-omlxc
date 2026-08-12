@@ -32,6 +32,20 @@ omlxc daemon status
 omlxc doctor --direct --json
 ```
 
+## Guided CLI quick start
+
+```bash
+omlxc status        # cached daemon health plus safe next commands
+omlxc guide         # bounded, read-only TTY workflow
+omlxc status --json # unchanged machine contract
+```
+
+`guide` is TTY-only and bounded. It offers exactly six goals: system health,
+available model, route explanation, running job, daemon troubleshooting, and
+safe lifecycle command help. `guide` never mutates models, jobs, services, or configuration;
+lifecycle guidance prints commands but does not execute them. The no-argument TUI
+remains the interactive entry, while status --json is the automation/machine entry.
+
 Reversible R1 operations require a terminal confirmation or explicit `--yes`:
 
 ```bash
