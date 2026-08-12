@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 import omlxc.cli as cli_module
@@ -214,7 +215,7 @@ def test_no_args_uses_tui_only_for_interactive_tty(monkeypatch: pytest.MonkeyPat
     pipeline = runner.invoke(app, [])
     assert pipeline.exit_code == 2
     assert launched == []
-    assert "requires a command" in pipeline.stderr.lower()
+    assert "ERROR E100 · Invalid command or configuration" in pipeline.stderr
     assert "traceback" not in pipeline.stderr.lower()
 
 
@@ -230,6 +231,220 @@ def test_status_json_and_human_table_keep_stdout_machine_clean(fake_client: Fake
     assert machine.stderr == ""
     assert "MBP" in human.stdout and "healthy" in human.stdout
     assert "\x1b[" not in human.stdout
+
+
+def test_status_json_bytes_remain_unchanged(fake_client: FakeClient) -> None:
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        '{"schema_version":1,"request_id":"req-cli-1",'
+        '"data":{"status":"ready","degraded":false,"policy":"interactive"}}\n'
+    )
+    assert result.stderr == ""
+
+
+def test_daemon_error_json_bytes_remain_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    failure = DaemonClientError(
+        RemoteError(code="E200", message="daemon is unavailable", retryable=True),
+        request_id="req-down",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_client_factory",
+        lambda _path: FakeClient(health_error=failure),
+    )
+
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    assert result.stderr == (
+        '{"schema_version":1,"request_id":"req-down",'
+        '"error":{"code":"E200","message":"daemon is unavailable",'
+        '"retryable":true,"affected_resources":[]}}\n'
+    )
+
+
+def test_status_human_output_is_guided_and_uses_one_health_call(
+    fake_client: FakeClient,
+) -> None:
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        "OK · Daemon ready\n"
+        "  Status: ready\n"
+        "  Degraded: no\n"
+        "  Policy: interactive\n"
+        "  Jobs: not checked by status\n\n"
+        "Next\n"
+        "  omlxc models list\n"
+        "  omlxc jobs list\n"
+    )
+    assert result.stderr == ""
+    assert fake_client.calls == [("health",)]
+
+
+def test_status_human_error_is_closed_and_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = DaemonClientError(
+        RemoteError(
+            code="E200",
+            message="Bearer credential at https://backend/private/path",
+            technical_detail="prompt body",
+        ),
+        request_id="req-down",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_client_factory",
+        lambda _path: FakeClient(health_error=failure),
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    assert result.stderr == (
+        "ERROR E200 · Daemon unavailable\n"
+        "What happened: the private control socket could not be reached.\n"
+        "Next: omlxc daemon status\n"
+        "Request: req-down\n"
+    )
+
+
+def test_status_human_degraded_output_is_guided_and_uses_one_health_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DegradedClient(FakeClient):
+        async def health(self) -> DaemonEnvelope:
+            self.calls.append(("health",))
+            return _envelope({"status": "not-ready", "degraded": True, "policy": "strict"})
+
+    client = DegradedClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        "WARNING · Daemon is running in degraded mode\n"
+        "  Status: degraded\n"
+        "  Degraded: yes\n"
+        "  Policy: strict\n"
+        "  Jobs: not checked by status\n\n"
+        "Next\n"
+        "  omlxc doctor\n"
+        "  omlxc nodes list\n"
+        "  omlxc jobs list\n"
+    )
+    assert result.stderr == ""
+    assert client.calls == [("health",)]
+
+
+def test_status_human_malformed_health_fails_closed_without_echoing_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hostile_data = ["https://backend/private/path", "prompt body"]
+    monkeypatch.setattr(cli_module, "_request_id", lambda: "req-malformed")
+
+    class MalformedClient(FakeClient):
+        async def health(self) -> DaemonEnvelope:
+            self.calls.append(("health",))
+            return _envelope(hostile_data)
+
+    client = MalformedClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 10
+    assert result.stdout == ""
+    assert result.stderr == (
+        "ERROR E900 · Internal client error\n"
+        "What happened: the client could not safely process the response.\n"
+        "Next: omlxc status\n"
+        "Request: req-malformed\n"
+    )
+    assert "https://backend/private/path" not in result.stderr
+    assert "prompt body" not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == [("health",)]
+
+
+def test_status_json_malformed_health_remains_original_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hostile_data = ["https://backend/private/path", "prompt body"]
+
+    class MalformedClient(FakeClient):
+        async def health(self) -> DaemonEnvelope:
+            self.calls.append(("health",))
+            return _envelope(hostile_data)
+
+    client = MalformedClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        '{"schema_version":1,"request_id":"req-cli-1",'
+        '"data":["https://backend/private/path","prompt body"]}\n'
+    )
+    assert result.stderr == ""
+    assert client.calls == [("health",)]
+
+
+def test_local_human_safety_error_is_closed_without_hostile_message(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli_module, "_request_id", lambda: "req-local")
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._fail_local(
+            "E700",
+            "hostile https://backend/private/path prompt body",
+            json_output=False,
+        )
+    captured = capsys.readouterr()
+
+    assert exc_info.value.exit_code == 7
+    assert captured.out == ""
+    assert captured.err == (
+        "ERROR E700 · Safety confirmation required\n"
+        "What happened: the requested operation is protected by an explicit safety gate.\n"
+        "Request: req-local\n"
+    )
+    assert "https://backend/private/path" not in captured.err
+    assert "prompt body" not in captured.err
+
+
+def test_cached_doctor_human_health_failure_uses_closed_status_wording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = DaemonClientError(
+        RemoteError(code="E200", message="Bearer credential at https://backend/private/path"),
+        request_id="req-doctor-down",
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_client_factory",
+        lambda _path: FakeClient(health_error=failure),
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 3
+    assert result.stdout == ""
+    assert result.stderr == (
+        "ERROR E200 · Daemon unavailable\n"
+        "What happened: the private control socket could not be reached.\n"
+        "Next: omlxc daemon status\n"
+        "Request: req-doctor-down\n"
+    )
 
 
 def test_show_json_returns_only_the_selected_resource(fake_client: FakeClient) -> None:

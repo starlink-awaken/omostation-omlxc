@@ -14,6 +14,7 @@ import typer
 from pydantic import JsonValue
 
 from . import __version__
+from .cli_presenter import ErrorContext, render_error, render_sections, status_sections
 from .client import DaemonClient, DaemonClientError, DaemonEnvelope, RemoteError
 from .config import (
     AtomicWriteError,
@@ -180,7 +181,13 @@ def _fail_config(message: str, *, request_id: str, detail: str | None = None) ->
     raise typer.Exit(EXIT_CONFIG)
 
 
-def _fail_local(code: str, message: str, *, json_output: bool) -> Never:
+def _fail_local(
+    code: str,
+    message: str,
+    *,
+    json_output: bool,
+    context: ErrorContext = ErrorContext.GENERAL,
+) -> Never:
     request_id = _request_id()
     error = RemoteError(code=code, message=message, retryable=False)
     if json_output:
@@ -197,11 +204,16 @@ def _fail_local(code: str, message: str, *, json_output: bool) -> Never:
             err=True,
         )
     else:
-        typer.echo(f"ERROR [{code}] {message} (request_id={request_id})", err=True)
+        typer.echo(render_error(error, request_id=request_id, context=context), err=True)
     raise typer.Exit(error_exit_code(code))
 
 
-def _emit_client_failure(error: DaemonClientError, *, json_output: bool) -> Never:
+def _emit_client_failure(
+    error: DaemonClientError,
+    *,
+    json_output: bool,
+    context: ErrorContext = ErrorContext.GENERAL,
+) -> Never:
     if json_output:
         typer.echo(
             json.dumps(
@@ -217,7 +229,7 @@ def _emit_client_failure(error: DaemonClientError, *, json_output: bool) -> Neve
         )
     else:
         typer.echo(
-            f"ERROR [{error.error.code}] {error.error.message} (request_id={error.request_id})",
+            render_error(error.error, request_id=error.request_id, context=context),
             err=True,
         )
     raise typer.Exit(error.exit_code)
@@ -233,6 +245,7 @@ def _execute(
     *,
     json_output: bool,
     renderer: Renderer,
+    error_context: ErrorContext = ErrorContext.GENERAL,
 ) -> None:
     try:
         envelope = asyncio.run(_call_daemon(operation))
@@ -241,11 +254,16 @@ def _execute(
         else:
             typer.echo(renderer(envelope.data))
     except DaemonClientError as exc:
-        _emit_client_failure(exc, json_output=json_output)
+        _emit_client_failure(exc, json_output=json_output, context=error_context)
     except typer.Exit:
         raise
     except Exception:
-        _fail_local("E900", "client could not process the daemon response", json_output=json_output)
+        _fail_local(
+            "E900",
+            "client could not process the daemon response",
+            json_output=json_output,
+            context=error_context,
+        )
 
 
 def _unsupported(action: str, *, json_output: bool) -> Never:
@@ -321,7 +339,12 @@ def status(
     json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Show cached daemon health without probing hardware."""
-    _execute(lambda client: client.health(), json_output=json_output, renderer=_render_status)
+    _execute(
+        lambda client: client.health(),
+        json_output=json_output,
+        renderer=lambda data: render_sections(status_sections(data)),
+        error_context=ErrorContext.STATUS,
+    )
 
 
 @nodes_app.command("list")
@@ -794,7 +817,12 @@ def doctor(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     if not direct:
-        _execute(lambda client: client.health(), json_output=json_output, renderer=_render_status)
+        _execute(
+            lambda client: client.health(),
+            json_output=json_output,
+            renderer=lambda data: render_sections(status_sections(data)),
+            error_context=ErrorContext.STATUS,
+        )
         return
     try:
         config = load_user_config()
@@ -901,13 +929,6 @@ async def _select_from_pages(fetch: PageFetcher, identifier: str, resource: str)
 def _render_mapping(data: JsonValue | None) -> str:
     mapping = _mapping(data)
     return "\n".join(f"{key.upper()} {_text(value)}" for key, value in sorted(mapping.items()))
-
-
-def _render_status(data: JsonValue | None) -> str:
-    mapping = _mapping(data)
-    status_value = _text(mapping.get("status", "unknown")).upper()
-    policy = _text(mapping.get("policy", "interactive"))
-    return f"DAEMON {status_value}\nPOLICY {policy}"
 
 
 def _render_job(data: JsonValue | None) -> str:
