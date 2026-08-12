@@ -1,0 +1,268 @@
+"""Contracts for the pure, safe CLI human presentation boundary."""
+
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from omlxc.cli_presenter import (
+    MAX_GUIDANCE_COMMANDS,
+    MAX_SECTION_LINES,
+    ErrorContext,
+    Guidance,
+    HumanSection,
+    Severity,
+    render_error,
+    render_sections,
+    status_sections,
+)
+from omlxc.client import RemoteError
+
+
+def test_sections_are_deterministic_color_free_and_bounded() -> None:
+    rendered = render_sections(
+        (
+            HumanSection("State", ("Daemon: ready", "Degraded: no")),
+            HumanSection("Next", ("omlxc models list", "omlxc jobs list")),
+        )
+    )
+
+    assert rendered == (
+        "State\n  Daemon: ready\n  Degraded: no\n\nNext\n  omlxc models list\n  omlxc jobs list"
+    )
+    assert "\x1b[" not in rendered
+
+
+def test_presentation_values_are_immutable_and_enforce_bounds() -> None:
+    section = HumanSection("State", ("Daemon: ready",))
+
+    with pytest.raises(FrozenInstanceError):
+        section.title = "Changed"  # type: ignore[misc]
+    with pytest.raises(ValueError, match="section lines exceed the limit"):
+        HumanSection("State", tuple("line" for _ in range(MAX_SECTION_LINES + 1)))
+    with pytest.raises(ValueError, match="guidance commands exceed the limit"):
+        Guidance(
+            Severity.ERROR,
+            "Summary",
+            "Explanation.",
+            tuple("omlxc status" for _ in range(MAX_GUIDANCE_COMMANDS + 1)),
+        )
+
+
+@pytest.mark.parametrize(
+    ("code", "title", "explanation", "commands"),
+    (
+        (
+            "E100",
+            "Invalid command or configuration",
+            "the command input or local configuration was rejected.",
+            ("omlxc --help",),
+        ),
+        (
+            "E200",
+            "Daemon unavailable",
+            "the private control socket could not be reached.",
+            ("omlxc daemon status",),
+        ),
+        (
+            "E204",
+            "Resource not found",
+            "the requested daemon resource does not exist or is no longer retained.",
+            ("omlxc jobs list",),
+        ),
+        (
+            "E300",
+            "Backend unavailable",
+            "the selected local backend did not complete the operation.",
+            ("omlxc status",),
+        ),
+        (
+            "E305",
+            "Operation timed out",
+            "the daemon did not complete the requested operation within its budget.",
+            ("omlxc status",),
+        ),
+        (
+            "E400",
+            "No eligible route",
+            "no placement currently satisfies the request constraints.",
+            ("omlxc models list",),
+        ),
+        (
+            "E401",
+            "Insufficient capacity",
+            "eligible placements currently lack admitted capacity.",
+            ("omlxc metrics show",),
+        ),
+        (
+            "E500",
+            "Job did not complete",
+            "the durable job ended without a complete result.",
+            ("omlxc jobs list",),
+        ),
+        (
+            "E700",
+            "Safety confirmation required",
+            "the requested operation is protected by an explicit safety gate.",
+            (),
+        ),
+        (
+            "E900",
+            "Internal client error",
+            "the client could not safely process the response.",
+            ("omlxc status",),
+        ),
+    ),
+)
+def test_closed_error_guidance_has_exact_stable_text(
+    code: str, title: str, explanation: str, commands: tuple[str, ...]
+) -> None:
+    error = RemoteError(code=code, message="ignored", retryable=False)
+
+    rendered = render_error(error, request_id="req-safe")
+
+    assert rendered == "\n".join(
+        (
+            f"ERROR {code} · {title}",
+            f"What happened: {explanation}",
+            *(f"Next: {command}" for command in commands),
+            "Request: req-safe",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "context", "commands"),
+    (
+        ("E100", ErrorContext.GUIDE, ("omlxc guide --help", "omlxc --help")),
+        ("E204", ErrorContext.JOB, ("omlxc jobs list",)),
+        ("E400", ErrorContext.ROUTE, ("omlxc models list",)),
+        ("E401", ErrorContext.ROUTE, ("omlxc metrics show", "omlxc nodes list")),
+    ),
+)
+def test_error_context_uses_static_command_overrides(
+    code: str, context: ErrorContext, commands: tuple[str, ...]
+) -> None:
+    rendered = render_error(
+        RemoteError(code=code, message="ignored", retryable=False),
+        request_id="req-safe",
+        context=context,
+    )
+
+    assert [
+        line.removeprefix("Next: ") for line in rendered.splitlines() if line.startswith("Next: ")
+    ] == list(commands)
+
+
+def test_error_guidance_ignores_all_untrusted_remote_fields() -> None:
+    hostile = RemoteError(
+        code="E200",
+        message="Bearer secret at https://identity.example/private/path",
+        technical_detail="prompt=response-body",
+        suggested_action="curl https://backend.example",
+        affected_resources=("node/private/identity",),
+        partial_result={"authorization": "Bearer token"},
+    )
+
+    rendered = render_error(hostile, request_id="req-safe", context=ErrorContext.STATUS)
+
+    assert rendered == (
+        "ERROR E200 · Daemon unavailable\n"
+        "What happened: the private control socket could not be reached.\n"
+        "Next: omlxc daemon status\n"
+        "Request: req-safe"
+    )
+    for forbidden in (
+        "secret",
+        "https://",
+        "/private/",
+        "prompt",
+        "response-body",
+        "Bearer",
+        "identity",
+    ):
+        assert forbidden not in rendered
+
+
+def test_unknown_error_uses_e900_guidance_but_retains_safe_actual_code() -> None:
+    rendered = render_error(
+        RemoteError(code="E777", message="ignored", retryable=False), request_id="req-safe"
+    )
+
+    assert rendered == (
+        "ERROR E777 · Internal client error\n"
+        "What happened: the client could not safely process the response.\n"
+        "Next: omlxc status\n"
+        "Request: req-safe"
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    (
+        {"status": "ready", "degraded": False, "policy": "interactive"},
+        {"status": "ready", "degraded": False},
+    ),
+)
+def test_status_sections_render_only_typed_healthy_health_values(data: dict[str, object]) -> None:
+    data.update(
+        {
+            "diagnostic": "https://daemon.example/private",
+            "config_identity": "Bearer secret",
+            "unexpected": {"authorization": "token"},
+        }
+    )
+
+    rendered = render_sections(status_sections(data))
+
+    policy = data.get("policy", "interactive")
+    assert rendered == (
+        "State\n"
+        "  Status: ready\n"
+        "  Degraded: no\n"
+        f"  Policy: {policy}\n"
+        "  Jobs: not checked by status\n\n"
+        "Next\n"
+        "  omlxc models list\n"
+        "  omlxc jobs list"
+    )
+    for forbidden in ("https://", "/private", "Bearer", "secret", "authorization", "token"):
+        assert forbidden not in rendered
+
+
+def test_status_sections_render_degraded_commands_without_querying_jobs() -> None:
+    rendered = render_sections(
+        status_sections({"status": "not-ready", "degraded": True, "policy": "strict"})
+    )
+
+    assert rendered == (
+        "State\n"
+        "  Status: degraded\n"
+        "  Degraded: yes\n"
+        "  Policy: strict\n"
+        "  Jobs: not checked by status\n\n"
+        "Next\n"
+        "  omlxc doctor\n"
+        "  omlxc nodes list\n"
+        "  omlxc jobs list"
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    (
+        None,
+        [],
+        {"status": "ready"},
+        {"status": 1, "degraded": False},
+        {"status": "ready", "degraded": "false"},
+        {"status": "ready", "degraded": False, "policy": 1},
+        {"status": "ready", "degraded": False, "policy": "line\nbreak"},
+    ),
+)
+def test_status_sections_reject_malformed_data_without_echoing_it(data: object) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        status_sections(data)
+
+    assert str(data) not in str(exc_info.value)
