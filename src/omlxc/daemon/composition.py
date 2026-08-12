@@ -8,7 +8,7 @@ import ipaddress
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
@@ -114,7 +114,9 @@ class StorageHandle:
         self._store: SQLiteRuntimeStore | None = None
         self._metric_flush_task: asyncio.Task[None] | None = None
         self._close_task: asyncio.Task[None] | None = None
+        self._metric_flush_wake = asyncio.Event()
         self._metric_flush_failures = 0
+        self._metric_buffer_rejections = 0
 
     @property
     def ready(self) -> bool:
@@ -134,6 +136,10 @@ class StorageHandle:
     def metric_flush_failures(self) -> int:
         return self._metric_flush_failures
 
+    @property
+    def metric_buffer_rejections(self) -> int:
+        return self._metric_buffer_rejections
+
     def require(self) -> SQLiteRuntimeStore:
         if self._store is None:
             raise RuntimeError("daemon storage is not started")
@@ -141,6 +147,12 @@ class StorageHandle:
 
     async def start(self) -> None:
         if self._store is None:
+            if self._close_task is not None and not self._close_task.done():
+                raise RuntimeError("daemon storage is still closing")
+            self._close_task = None
+            self._metric_flush_wake = asyncio.Event()
+            self._metric_flush_failures = 0
+            self._metric_buffer_rejections = 0
             self._store = await SQLiteRuntimeStore.open(self._path)
             self._metric_flush_task = asyncio.create_task(
                 self._flush_metrics_periodically(), name="omlxcd-metric-flush"
@@ -176,7 +188,12 @@ class StorageHandle:
 
     async def _flush_metrics_periodically(self) -> None:
         while True:
-            await asyncio.sleep(self._metric_flush_interval_seconds)
+            with suppress(TimeoutError):
+                await asyncio.wait_for(
+                    self._metric_flush_wake.wait(),
+                    timeout=self._metric_flush_interval_seconds,
+                )
+            self._metric_flush_wake.clear()
             store = self._store
             if store is None:
                 return
@@ -191,7 +208,11 @@ class StorageHandle:
         return await self.require().append_route_audit(record)
 
     def accept_metric(self, metric: MetricRecord) -> bool:
-        return self.require().accept_metric(metric)
+        accepted = self.require().accept_metric(metric)
+        if not accepted:
+            self._metric_buffer_rejections += 1
+        self._metric_flush_wake.set()
+        return accepted
 
 
 class SnapshotCatalog:
@@ -798,6 +819,7 @@ class ProductionControlService:
         return {
             "requests": await self._storage.require().metric_count(),
             "metric_flush_failures": self._storage.metric_flush_failures,
+            "metric_buffer_rejections": self._storage.metric_buffer_rejections,
             "event_drops": self._bus.dropped_low_priority,
         }
 
