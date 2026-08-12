@@ -476,6 +476,8 @@ def guide() -> None:
 
         try:
             typer.echo(_render_guide_result(guide_request.operation, envelope.data))
+        except Abort:
+            _fail_local("E100", "guide cancelled", json_output=False, context=ErrorContext.GUIDE)
         except Exception:
             _fail_local(
                 "E900",

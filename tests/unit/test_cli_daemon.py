@@ -412,6 +412,28 @@ def test_guide_renderer_fault_fails_closed_without_echoing_error_data(
     assert client.calls == [("health",)]
 
 
+def test_guide_renderer_abort_preserves_cancellation_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    def aborted_renderer(_operation: GuideOperation, _data: object) -> str:
+        raise typer.Abort()
+
+    monkeypatch.setattr(cli_module, "_render_guide_result", aborted_renderer)
+    result = runner.invoke(app, ["guide"], input="1\n")
+
+    assert result.exit_code == 2
+    assert "ERROR E100" in result.stderr
+    assert "guide cancelled" not in result.stderr
+    assert "ERROR E900" not in result.stderr
+    assert "Next: omlxc guide --help" in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == [("health",)]
+
+
 def test_guide_rejects_hostile_route_fallback_before_rendering_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
