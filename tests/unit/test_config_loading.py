@@ -41,6 +41,7 @@ def test_default_config_path_reuses_private_xdg_compatibility_config_when_needed
     monkeypatch.setattr(
         loading_module, "_xdg_compatibility_config_path", lambda: compatibility_path
     )
+    monkeypatch.setattr(loading_module.sys, "platform", "darwin")
 
     assert loading_module.default_config_path() == compatibility_path
 
@@ -103,6 +104,7 @@ def test_default_config_path_rejects_unsafe_xdg_compatibility_config(
     monkeypatch.setattr(
         loading_module, "_xdg_compatibility_config_path", lambda: compatibility_path
     )
+    monkeypatch.setattr(loading_module.sys, "platform", "darwin")
 
     assert loading_module.default_config_path() == platform_directory / "config.toml"
 
