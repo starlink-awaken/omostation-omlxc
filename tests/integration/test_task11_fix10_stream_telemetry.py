@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 from collections import deque
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -21,6 +22,7 @@ from omlxc.config import (
     StorageConfig,
 )
 from omlxc.daemon import DaemonServer, build_production_daemon
+from omlxc.daemon.composition import StorageHandle
 from omlxc.domain import BackendKind
 from omlxc.domain.protocols import (
     AdapterError,
@@ -36,7 +38,7 @@ from omlxc.domain.protocols import (
     StreamPhase,
 )
 from omlxc.scheduler import PlacementSnapshot
-from omlxc.storage import SQLiteRuntimeStore
+from omlxc.storage import MetricRecord, SQLiteRuntimeStore
 
 
 @pytest.fixture
@@ -240,6 +242,173 @@ def _chat_body(*, stream: bool, content: str = "hello") -> dict[str, object]:
         "stream": stream,
         "timeout_seconds": 0.5,
     }
+
+
+@pytest.mark.asyncio
+async def test_production_metric_becomes_durable_while_daemon_keeps_running(
+    short_root: Path,
+) -> None:
+    config = _config(short_root)
+    backend = ProductionBackend()
+    composition = build_production_daemon(
+        config,
+        adapters={"backend": cast(BackendAdapter, backend)},
+        snapshots=(_snapshot(),),
+        metric_flush_interval_seconds=0.02,
+    )
+    server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
+    await server.start()
+    try:
+        async with await _client(config.daemon.socket_path) as client:
+            response = await client.post(
+                "/openai/v1/chat/completions",
+                headers={"X-OMLXC-Request-ID": "metric.live-daemon"},
+                json=_chat_body(stream=False),
+            )
+        assert response.status_code == 200
+
+        deadline = asyncio.get_running_loop().time() + 1.0
+        durable: list[tuple[str, int, str | None]] = []
+        while asyncio.get_running_loop().time() < deadline:
+            with sqlite3.connect(config.storage.database_path) as connection:
+                durable = connection.execute(
+                    """
+                    SELECT request_id, success, phase
+                    FROM request_metrics WHERE request_id = ?
+                    """,
+                    ("metric.live-daemon",),
+                ).fetchall()
+            if durable:
+                break
+            await asyncio.sleep(0.02)
+
+        assert durable == [("metric.live-daemon", 1, "complete")]
+        assert not composition.runtime.task_settled
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_periodic_metric_flush_recovers_after_one_write_failure_without_losing_metric(
+    short_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(short_root)
+    backend = ProductionBackend()
+    composition = build_production_daemon(
+        config,
+        adapters={"backend": cast(BackendAdapter, backend)},
+        snapshots=(_snapshot(),),
+        metric_flush_interval_seconds=0.02,
+    )
+    server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
+    await server.start()
+    store = composition.control._storage.require()  # noqa: SLF001
+    original_flush = store.flush_metrics
+    attempts = 0
+
+    async def flaky_flush() -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("safe synthetic writer failure")
+        return await original_flush()
+
+    monkeypatch.setattr(store, "flush_metrics", flaky_flush)
+    try:
+        async with await _client(config.daemon.socket_path) as client:
+            response = await client.post(
+                "/openai/v1/chat/completions",
+                headers={"X-OMLXC-Request-ID": "metric.retry-safe"},
+                json=_chat_body(stream=False),
+            )
+        assert response.status_code == 200
+
+        deadline = asyncio.get_running_loop().time() + 1.0
+        durable = 0
+        while asyncio.get_running_loop().time() < deadline:
+            with sqlite3.connect(config.storage.database_path) as connection:
+                durable = connection.execute(
+                    "SELECT COUNT(*) FROM request_metrics WHERE request_id = ?",
+                    ("metric.retry-safe",),
+                ).fetchone()[0]
+            if durable:
+                break
+            await asyncio.sleep(0.02)
+
+        assert durable == 1
+        assert attempts >= 2
+        assert composition.runtime.ready
+        assert (await composition.control.metrics_summary())["metric_flush_failures"] == 1
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_empty_periodic_metric_flush_is_bounded_and_stops_with_runtime(
+    short_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(short_root)
+    composition = build_production_daemon(
+        config,
+        adapters={"backend": cast(BackendAdapter, ProductionBackend())},
+        snapshots=(_snapshot(),),
+        metric_flush_interval_seconds=0.02,
+    )
+    server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
+    await server.start()
+    store = composition.control._storage.require()  # noqa: SLF001
+    original_flush = store.flush_metrics
+    calls = 0
+
+    async def counted_flush() -> int:
+        nonlocal calls
+        calls += 1
+        return await original_flush()
+
+    monkeypatch.setattr(store, "flush_metrics", counted_flush)
+    await asyncio.sleep(0.075)
+    assert 2 <= calls <= 5
+    await server.stop()
+    deadline = asyncio.get_running_loop().time() + 0.5
+    while not composition.runtime.task_settled and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.01)
+    assert composition.runtime.task_settled
+    calls_after_stop = calls
+    await asyncio.sleep(0.05)
+    assert calls == calls_after_stop
+
+
+@pytest.mark.asyncio
+async def test_cancelled_storage_close_still_performs_final_metric_flush(
+    short_root: Path,
+) -> None:
+    config = _config(short_root)
+    storage = StorageHandle(config, metric_flush_interval_seconds=60)
+    await storage.start()
+    assert storage.accept_metric(
+        MetricRecord(
+            request_id="metric.cancelled-close",
+            observed_at=datetime.now(UTC),
+            latency_ms=1.0,
+            success=True,
+            phase="complete",
+        )
+    )
+
+    closing = asyncio.create_task(storage.close())
+    await asyncio.sleep(0)
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+
+    with sqlite3.connect(config.storage.database_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM request_metrics WHERE request_id = ?",
+            ("metric.cancelled-close",),
+        ).fetchone()[0] == 1
+    assert storage.task_settled
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@ from typing import cast
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+import anyio
 from fastapi import FastAPI
 
 from omlxc.adapters import (
@@ -105,9 +106,15 @@ from .runtime import DaemonRuntime
 
 
 class StorageHandle:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, *, metric_flush_interval_seconds: float) -> None:
+        if metric_flush_interval_seconds <= 0:
+            raise ValueError("metric flush interval must be positive")
         self._path = config.storage.database_path
+        self._metric_flush_interval_seconds = metric_flush_interval_seconds
         self._store: SQLiteRuntimeStore | None = None
+        self._metric_flush_task: asyncio.Task[None] | None = None
+        self._close_task: asyncio.Task[None] | None = None
+        self._metric_flush_failures = 0
 
     @property
     def ready(self) -> bool:
@@ -117,6 +124,16 @@ class StorageHandle:
     def diagnostic(self) -> str:
         return self._store.diagnostic if self._store is not None else "storage_not_started"
 
+    @property
+    def task_settled(self) -> bool:
+        flush_settled = self._metric_flush_task is None or self._metric_flush_task.done()
+        close_settled = self._close_task is None or self._close_task.done()
+        return flush_settled and close_settled
+
+    @property
+    def metric_flush_failures(self) -> int:
+        return self._metric_flush_failures
+
     def require(self) -> SQLiteRuntimeStore:
         if self._store is None:
             raise RuntimeError("daemon storage is not started")
@@ -125,11 +142,50 @@ class StorageHandle:
     async def start(self) -> None:
         if self._store is None:
             self._store = await SQLiteRuntimeStore.open(self._path)
+            self._metric_flush_task = asyncio.create_task(
+                self._flush_metrics_periodically(), name="omlxcd-metric-flush"
+            )
 
     async def close(self) -> None:
+        task = self._close_task
+        if task is None:
+            task = asyncio.create_task(self._close_impl(), name="omlxcd-storage-handle-close")
+            self._close_task = task
+        interrupted = False
+        with anyio.CancelScope(shield=True):
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    interrupted = True
+                    current = asyncio.current_task()
+                    if current is not None:
+                        current.uncancel()
+        task.result()
+        if interrupted:
+            raise asyncio.CancelledError
+
+    async def _close_impl(self) -> None:
+        task, self._metric_flush_task = self._metric_flush_task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         store, self._store = self._store, None
         if store is not None:
             await store.close()
+
+    async def _flush_metrics_periodically(self) -> None:
+        while True:
+            await asyncio.sleep(self._metric_flush_interval_seconds)
+            store = self._store
+            if store is None:
+                return
+            try:
+                await store.flush_metrics()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._metric_flush_failures += 1
 
     async def append_route_audit(self, record: RouteAuditWrite) -> RouteAuditRecord:
         return await self.require().append_route_audit(record)
@@ -741,6 +797,7 @@ class ProductionControlService:
     async def metrics_summary(self) -> Mapping[str, object]:
         return {
             "requests": await self._storage.require().metric_count(),
+            "metric_flush_failures": self._storage.metric_flush_failures,
             "event_drops": self._bus.dropped_low_priority,
         }
 
@@ -927,6 +984,7 @@ def build_production_daemon(
     tailscale: TailscaleAdapter | None = None,
     id_factory: Callable[[], str] | None = None,
     now: Callable[[], datetime] | None = None,
+    metric_flush_interval_seconds: float = 0.25,
 ) -> ProductionComposition:
     """Build the real daemon graph without starting network or model operations."""
     clock = now or (lambda: datetime.now(UTC))
@@ -940,7 +998,7 @@ def build_production_daemon(
     )
     catalog = SnapshotCatalog(snapshots or _configured_snapshots(config), now=clock)
     planner = RoutePlanner(default_policies())
-    storage = StorageHandle(config)
+    storage = StorageHandle(config, metric_flush_interval_seconds=metric_flush_interval_seconds)
     bus = EventBus(capacity=128)
     probe = CatalogProbe(
         config=config,
