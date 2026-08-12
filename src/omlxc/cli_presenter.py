@@ -15,8 +15,25 @@ MAX_GUIDANCE_COMMANDS: Final = 3
 
 
 def _require_safe_text(value: object, label: str) -> None:
-    if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
         raise ValueError(f"{label} is invalid")
+
+
+def _is_stable_error_code(value: str) -> bool:
+    return len(value) == 4 and value.startswith("E") and value[1:].isascii() and value[1:].isdigit()
+
+
+def _is_public_policy(value: str) -> bool:
+    return (
+        bool(value)
+        and len(value) <= 32
+        and value.isascii()
+        and all(character.isalnum() or character in "-_" for character in value)
+    )
 
 
 class Severity(StrEnum):
@@ -177,13 +194,13 @@ def render_error(
     if not isinstance(raw_context, ErrorContext):
         raise ValueError("error context is invalid")
     _require_safe_text(request_id, "request ID")
-    _require_safe_text(error.code, "error code")
+    display_code = error.code if _is_stable_error_code(error.code) else "E900"
 
-    guidance = _ERROR_GUIDANCE.get(error.code, _ERROR_GUIDANCE["E900"])
-    commands = _CONTEXT_COMMANDS.get((error.code, raw_context), guidance.commands)
+    guidance = _ERROR_GUIDANCE.get(display_code, _ERROR_GUIDANCE["E900"])
+    commands = _CONTEXT_COMMANDS.get((display_code, raw_context), guidance.commands)
     return "\n".join(
         (
-            f"ERROR {error.code} · {guidance.summary}",
+            f"ERROR {display_code} · {guidance.summary}",
             f"What happened: {guidance.explanation}",
             *(f"Next: {command}" for command in commands),
             f"Request: {request_id}",
@@ -202,7 +219,10 @@ def status_sections(data: object) -> tuple[HumanSection, HumanSection]:
     if not isinstance(status, str) or type(degraded) is not bool or not isinstance(policy, str):
         raise ValueError("health data is invalid")
     _require_safe_text(status, "health status")
-    _require_safe_text(policy, "health policy")
+    if "\n" in policy or "\r" in policy:
+        raise ValueError("health policy is invalid")
+    if not _is_public_policy(policy):
+        policy = "interactive"
 
     healthy = status == "ready" and not degraded
     facts = (

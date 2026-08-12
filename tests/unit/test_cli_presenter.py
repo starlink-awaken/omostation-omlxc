@@ -34,6 +34,18 @@ def test_sections_are_deterministic_color_free_and_bounded() -> None:
     assert "\x1b[" not in rendered
 
 
+@pytest.mark.parametrize(
+    ("title", "lines"),
+    (
+        ("\x1b[31mState", ("Daemon: ready",)),
+        ("State", ("Daemon: \x07ready",)),
+    ),
+)
+def test_sections_reject_terminal_control_characters(title: str, lines: tuple[str, ...]) -> None:
+    with pytest.raises(ValueError):
+        HumanSection(title, lines)
+
+
 def test_presentation_values_are_immutable_and_enforce_bounds() -> None:
     section = HumanSection("State", ("Daemon: ready",))
 
@@ -198,6 +210,23 @@ def test_unknown_error_uses_e900_guidance_but_retains_safe_actual_code() -> None
     )
 
 
+def test_unknown_noncanonical_error_code_uses_safe_e900_heading() -> None:
+    hostile_code = "E777\x1b[31mhttps://x/y"
+
+    rendered = render_error(
+        RemoteError(code=hostile_code, message="ignored", retryable=False), request_id="req-safe"
+    )
+
+    assert rendered == (
+        "ERROR E900 · Internal client error\n"
+        "What happened: the client could not safely process the response.\n"
+        "Next: omlxc status\n"
+        "Request: req-safe"
+    )
+    for forbidden in ("\x1b", "https://", "/y"):
+        assert forbidden not in rendered
+
+
 @pytest.mark.parametrize(
     "data",
     (
@@ -247,6 +276,18 @@ def test_status_sections_render_degraded_commands_without_querying_jobs() -> Non
         "  omlxc nodes list\n"
         "  omlxc jobs list"
     )
+
+
+def test_status_sections_ignore_hostile_policy_and_use_interactive() -> None:
+    hostile_policy = "\x1b[31mhttps://daemon.invalid/private/path"
+
+    rendered = render_sections(
+        status_sections({"status": "ready", "degraded": False, "policy": hostile_policy})
+    )
+
+    assert "  Policy: interactive\n" in rendered
+    for forbidden in ("\x1b", "https://", "/private", "/path", "daemon.invalid"):
+        assert forbidden not in rendered
 
 
 @pytest.mark.parametrize(
