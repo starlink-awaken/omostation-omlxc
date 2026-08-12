@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Never, cast
 
 import pytest
 import typer
@@ -13,6 +15,13 @@ from typer.testing import CliRunner
 
 import omlxc.cli as cli_module
 from omlxc.cli import app
+from omlxc.cli_guide import (
+    MAX_GUIDE_TRANSITIONS,
+    GuideOperation,
+    GuideRequest,
+    GuideState,
+    GuideTransition,
+)
 from omlxc.client import DaemonClientError, DaemonEnvelope, DaemonEvent, RemoteError
 
 runner = CliRunner()
@@ -124,6 +133,46 @@ class FakeClient:
         )
 
 
+class GuideTripwireClient(FakeClient):
+    """Guide fixture that fails if a read-only workflow escapes its allowlist."""
+
+    @staticmethod
+    def _forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("guide called a forbidden daemon method")
+
+    async def nodes(self, *, after: str | None = None, limit: int = 100) -> DaemonEnvelope:
+        self._forbidden(after, limit)
+        raise AssertionError("unreachable")
+
+    async def jobs(self, *, after: str | None = None, limit: int = 100) -> DaemonEnvelope:
+        self._forbidden(after, limit)
+        raise AssertionError("unreachable")
+
+    async def load_model(
+        self, model_id: str, *, idempotency_key: str | None = None
+    ) -> DaemonEnvelope:
+        self._forbidden(model_id, idempotency_key)
+        raise AssertionError("unreachable")
+
+    async def unload_model(
+        self, model_id: str, *, idempotency_key: str | None = None
+    ) -> DaemonEnvelope:
+        self._forbidden(model_id, idempotency_key)
+        raise AssertionError("unreachable")
+
+    async def cancel_job(self, job_id: str) -> DaemonEnvelope:
+        self._forbidden(job_id)
+        raise AssertionError("unreachable")
+
+    async def metrics(self) -> DaemonEnvelope:
+        self._forbidden()
+        raise AssertionError("unreachable")
+
+    def stream_events(self, *, after: int = 0) -> AsyncIterator[DaemonEvent]:
+        self._forbidden(after)
+        raise AssertionError("unreachable")
+
+
 class PagedClient(FakeClient):
     def __init__(self, *, cycle: bool = False) -> None:
         super().__init__()
@@ -168,12 +217,223 @@ def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     return client
 
 
+@pytest.mark.parametrize(
+    ("user_input", "expected_call", "expected_text"),
+    (
+        ("1\n", ("health",), "OK · Daemon ready"),
+        ("2\n", ("models", None, 20), "local/model-a"),
+        (
+            "3\nlocal/model-a\n",
+            (
+                "plan",
+                {
+                    "model_id": "local/model-a",
+                    "profile": "interactive",
+                    "context_tokens": 0,
+                    "required_capabilities": [],
+                    "thinking_requested": False,
+                },
+            ),
+            "SELECTED mbp-omlx-a",
+        ),
+        ("4\njob-1\n", ("job", "job-1"), "JOB job-1"),
+        ("5\n", ("health",), "OK · Daemon ready"),
+        ("6\nlocal/model-a\n", None, "omlxc models load local/model-a --yes"),
+    ),
+)
+def test_guide_branches_are_bounded_and_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    user_input: str,
+    expected_call: tuple[object, ...] | None,
+    expected_text: str,
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    result = runner.invoke(app, ["guide"], input=user_input)
+
+    assert result.exit_code == 0
+    assert expected_text in result.stdout
+    assert result.stderr == ""
+    assert client.calls == ([] if expected_call is None else [expected_call])
+
+
+def test_guide_rejects_noninteractive_input_before_prompt_or_client_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: False)
+    monkeypatch.setattr(
+        typer,
+        "prompt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("prompted")),
+    )
+
+    result = runner.invoke(app, ["guide"])
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert "ERROR E100" in result.stderr
+    assert "Next: omlxc guide --help" in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == []
+
+
+@pytest.mark.parametrize("user_input", ("7\n", "3\n../../../private\n", "4\n\n"))
+def test_guide_invalid_input_fails_closed_without_a_daemon_call(
+    monkeypatch: pytest.MonkeyPatch, user_input: str
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    result = runner.invoke(app, ["guide"], input=user_input)
+
+    assert result.exit_code == 2
+    assert result.stdout.startswith("What would you like to do?")
+    assert "ERROR E100" in result.stderr
+    assert "Next: omlxc guide --help" in result.stderr
+    assert "../../../private" not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == []
+
+
+@pytest.mark.parametrize("cancel", (typer.Abort, EOFError, KeyboardInterrupt))
+def test_guide_input_cancellation_fails_closed_without_a_daemon_call(
+    monkeypatch: pytest.MonkeyPatch, cancel: type[BaseException]
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    def abort_prompt(*_args: object, **_kwargs: object) -> Never:
+        raise cancel()
+
+    monkeypatch.setattr(typer, "prompt", abort_prompt)
+    result = runner.invoke(app, ["guide"])
+
+    assert result.exit_code == 2
+    assert "ERROR E100" in result.stderr
+    assert "Next: omlxc guide --help" in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == []
+
+
+def test_guide_client_failure_retains_closed_error_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hostile = DaemonClientError(
+        RemoteError(
+            code="E200",
+            message="Bearer credential at https://backend/private/path",
+            technical_detail="hostile prompt body",
+        ),
+        request_id="req-guide",
+    )
+    client = GuideTripwireClient(health_error=hostile)
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    result = runner.invoke(app, ["guide"], input="1\n")
+
+    assert result.exit_code == 3
+    assert result.stdout.startswith("What would you like to do?")
+    assert "ERROR E200 · Daemon unavailable" in result.stderr
+    assert "Next: omlxc daemon status" in result.stderr
+    assert "Request: req-guide" in result.stderr
+    for hostile_value in ("Bearer", "https://", "/private", "prompt body"):
+        assert hostile_value not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == [("health",)]
+
+
+@pytest.mark.parametrize(
+    ("user_input", "method", "data"),
+    (
+        ("1\n", "health", ["https://health/private"]),
+        ("2\n", "models", {"not_items": "https://models/private"}),
+        ("3\nlocal/model-a\n", "plan_route", ["https://route/private"]),
+        ("4\njob-1\n", "job", ["https://job/private"]),
+    ),
+)
+def test_guide_malformed_daemon_data_fails_closed_after_one_declared_call(
+    monkeypatch: pytest.MonkeyPatch, user_input: str, method: str, data: object
+) -> None:
+    class MalformedGuideClient(GuideTripwireClient):
+        async def health(self) -> DaemonEnvelope:
+            self.calls.append(("health",))
+            return _envelope(data)
+
+        async def models(self, *, after: str | None = None, limit: int = 100) -> DaemonEnvelope:
+            self.calls.append(("models", after, limit))
+            return _envelope(data)
+
+        async def plan_route(self, body: dict[str, object]) -> DaemonEnvelope:
+            self.calls.append(("plan", body))
+            return _envelope(data)
+
+        async def job(self, job_id: str) -> DaemonEnvelope:
+            self.calls.append(("job", job_id))
+            return _envelope(data)
+
+    client = MalformedGuideClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    result = runner.invoke(app, ["guide"], input=user_input)
+
+    assert result.exit_code == 10
+    assert "ERROR E900" in result.stderr
+    assert "https://" not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert [call[0] for call in client.calls] == ["plan" if method == "plan_route" else method]
+
+
+def test_guide_operation_rejects_unknown_operations_before_a_daemon_call() -> None:
+    client = GuideTripwireClient()
+    request = GuideRequest(cast(GuideOperation, "future-operation"))
+
+    with pytest.raises(ValueError, match="^guide operation is invalid$"):
+        asyncio.run(cli_module._guide_operation(client, request))
+
+    assert client.calls == []
+
+
+def test_guide_transition_limit_fails_closed_without_daemon_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = GuideTripwireClient()
+    prompts = 0
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    def nonterminal_transition(_state: GuideState, _answer: object) -> GuideTransition:
+        return GuideTransition(GuideState.GOAL)
+
+    def counted_prompt(*_args: object, **_kwargs: object) -> str:
+        nonlocal prompts
+        prompts += 1
+        return "1"
+
+    monkeypatch.setattr(cli_module, "advance", nonterminal_transition)
+    monkeypatch.setattr(typer, "prompt", counted_prompt)
+    result = runner.invoke(app, ["guide"])
+
+    assert result.exit_code == 10
+    assert "ERROR E900" in result.stderr
+    assert prompts == MAX_GUIDE_TRANSITIONS
+    assert client.calls == []
+
+
 def test_help_exposes_complete_public_command_tree() -> None:
     result = runner.invoke(app, ["--help"])
 
     assert result.exit_code == 0
     for command in (
         "status",
+        "guide",
         "nodes",
         "models",
         "routes",

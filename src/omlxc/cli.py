@@ -12,9 +12,25 @@ from uuid import uuid4
 
 import typer
 from pydantic import JsonValue
+from typer import Abort
 
 from . import __version__
-from .cli_presenter import ErrorContext, render_error, render_sections, status_sections
+from .cli_guide import (
+    DAEMON_OPERATIONS,
+    MAX_GUIDE_TRANSITIONS,
+    GuideOperation,
+    GuideRequest,
+    GuideState,
+    advance,
+    render_prompt,
+)
+from .cli_presenter import (
+    ErrorContext,
+    render_error,
+    render_lifecycle_help,
+    render_sections,
+    status_sections,
+)
 from .client import DaemonClient, DaemonClientError, DaemonEnvelope, RemoteError
 from .config import (
     AtomicWriteError,
@@ -344,6 +360,122 @@ def status(
         json_output=json_output,
         renderer=lambda data: render_sections(status_sections(data)),
         error_context=ErrorContext.STATUS,
+    )
+
+
+def _guide_argument(request: GuideRequest) -> str:
+    argument = request.argument
+    if not isinstance(argument, str) or not argument:
+        raise ValueError("guide operation is invalid")
+    return argument
+
+
+async def _guide_operation(client: DaemonClient, request: GuideRequest) -> DaemonEnvelope:
+    if request.operation not in DAEMON_OPERATIONS:
+        raise ValueError("guide operation is invalid")
+    if request.operation in {GuideOperation.HEALTH, GuideOperation.DAEMON_HEALTH}:
+        return await client.health()
+    if request.operation is GuideOperation.MODELS:
+        return await client.models(after=None, limit=20)
+    if request.operation is GuideOperation.ROUTE:
+        argument = _guide_argument(request)
+        body: dict[str, JsonValue] = {
+            "model_id": argument,
+            "profile": "interactive",
+            "context_tokens": 0,
+            "required_capabilities": [],
+            "thinking_requested": False,
+        }
+        return await client.plan_route(body)
+    if request.operation is GuideOperation.JOB:
+        return await client.job(_guide_argument(request))
+    raise ValueError("guide operation is invalid")
+
+
+def _render_guide_result(operation: GuideOperation, data: JsonValue | None) -> str:
+    if operation in {GuideOperation.HEALTH, GuideOperation.DAEMON_HEALTH}:
+        return render_sections(status_sections(data))
+    if operation is GuideOperation.MODELS:
+        return _render_items(data, ("id", "role", "reasoning"))
+    if operation is GuideOperation.ROUTE:
+        return _render_route(data)
+    if operation is GuideOperation.JOB:
+        return _render_job(data)
+    raise ValueError("guide operation is invalid")
+
+
+@app.command("guide")
+def guide() -> None:
+    """Choose a bounded, read-only workflow for a common compute goal."""
+    if not _stdio_is_tty():
+        _fail_local(
+            "E100",
+            "guide requires an interactive terminal",
+            json_output=False,
+            context=ErrorContext.GUIDE,
+        )
+
+    state = GuideState.GOAL
+    for _ in range(MAX_GUIDE_TRANSITIONS):
+        try:
+            typer.echo(render_prompt(state))
+            answer = typer.prompt("Select")
+            transition = advance(state, answer)
+        except (Abort, EOFError, KeyboardInterrupt):
+            _fail_local("E100", "guide cancelled", json_output=False, context=ErrorContext.GUIDE)
+        except ValueError:
+            _fail_local(
+                "E100", "guide input is invalid", json_output=False, context=ErrorContext.GUIDE
+            )
+
+        state = transition.next_state
+        request = transition.request
+        if request is None:
+            continue
+        if request.operation is GuideOperation.LIFECYCLE_HELP:
+            try:
+                typer.echo(render_lifecycle_help(_guide_argument(request)))
+            except ValueError:
+                _fail_local(
+                    "E100", "guide input is invalid", json_output=False, context=ErrorContext.GUIDE
+                )
+            return
+
+        guide_request = request
+        try:
+            envelope = asyncio.run(
+                _call_daemon(
+                    lambda client, guide_request=guide_request: _guide_operation(
+                        client, guide_request
+                    )
+                )
+            )
+        except DaemonClientError as exc:
+            _emit_client_failure(exc, json_output=False, context=ErrorContext.GUIDE)
+        except ValueError:
+            _fail_local(
+                "E900",
+                "guide could not safely process the daemon response",
+                json_output=False,
+                context=ErrorContext.GUIDE,
+            )
+
+        try:
+            typer.echo(_render_guide_result(guide_request.operation, envelope.data))
+        except ValueError:
+            _fail_local(
+                "E900",
+                "guide could not safely process the daemon response",
+                json_output=False,
+                context=ErrorContext.GUIDE,
+            )
+        return
+
+    _fail_local(
+        "E900",
+        "guide transition limit exceeded",
+        json_output=False,
+        context=ErrorContext.GUIDE,
     )
 
 
