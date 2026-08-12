@@ -286,7 +286,7 @@ def test_status_sections_render_only_typed_healthy_health_values(data: dict[str,
 
     policy = data.get("policy", "interactive")
     assert rendered == (
-        "State\n"
+        "OK · Daemon ready\n"
         "  Status: ready\n"
         "  Degraded: no\n"
         f"  Policy: {policy}\n"
@@ -305,7 +305,7 @@ def test_status_sections_render_degraded_commands_without_querying_jobs() -> Non
     )
 
     assert rendered == (
-        "State\n"
+        "WARNING · Daemon is running in degraded mode\n"
         "  Status: degraded\n"
         "  Degraded: yes\n"
         "  Policy: strict\n"

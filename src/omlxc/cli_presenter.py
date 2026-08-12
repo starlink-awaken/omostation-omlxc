@@ -253,4 +253,5 @@ def status_sections(data: object) -> tuple[HumanSection, HumanSection]:
         if healthy
         else ("omlxc doctor", "omlxc nodes list", "omlxc jobs list")
     )
-    return HumanSection("State", facts), HumanSection("Next", commands)
+    title = "OK · Daemon ready" if healthy else "WARNING · Daemon is running in degraded mode"
+    return HumanSection(title, facts), HumanSection("Next", commands)
