@@ -391,6 +391,56 @@ def test_guide_malformed_daemon_data_fails_closed_after_one_declared_call(
     assert [call[0] for call in client.calls] == ["plan" if method == "plan_route" else method]
 
 
+def test_guide_renderer_fault_fails_closed_without_echoing_error_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = GuideTripwireClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    def broken_renderer(_operation: GuideOperation, _data: object) -> str:
+        raise RuntimeError("https://renderer/private/identity")
+
+    monkeypatch.setattr(cli_module, "_render_guide_result", broken_renderer)
+    result = runner.invoke(app, ["guide"], input="1\n")
+
+    assert result.exit_code == 10
+    assert "ERROR E900" in result.stderr
+    assert "https://" not in result.stdout
+    assert "https://" not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert client.calls == [("health",)]
+
+
+def test_guide_rejects_hostile_route_fallback_before_rendering_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hostile_fallback = "https://route/private/identity"
+
+    class HostileRouteGuideClient(GuideTripwireClient):
+        async def plan_route(self, body: dict[str, object]) -> DaemonEnvelope:
+            self.calls.append(("plan", body))
+            return _envelope(
+                {
+                    "selected_placement_id": "mbp-omlx-a",
+                    "fallback_chain": [hostile_fallback],
+                }
+            )
+
+    client = HostileRouteGuideClient()
+    monkeypatch.setattr(cli_module, "_client_factory", lambda _path: client)
+    monkeypatch.setattr(cli_module, "_stdio_is_tty", lambda: True)
+
+    result = runner.invoke(app, ["guide"], input="3\nlocal/model-a\n")
+
+    assert result.exit_code == 10
+    assert "ERROR E900" in result.stderr
+    assert hostile_fallback not in result.stdout
+    assert hostile_fallback not in result.stderr
+    assert "traceback" not in result.stderr.lower()
+    assert [call[0] for call in client.calls] == ["plan"]
+
+
 def test_guide_operation_rejects_unknown_operations_before_a_daemon_call() -> None:
     client = GuideTripwireClient()
     request = GuideRequest(cast(GuideOperation, "future-operation"))

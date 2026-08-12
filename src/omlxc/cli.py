@@ -23,6 +23,7 @@ from .cli_guide import (
     GuideState,
     advance,
     render_prompt,
+    validate_public_identifier,
 )
 from .cli_presenter import (
     ErrorContext,
@@ -398,10 +399,23 @@ def _render_guide_result(operation: GuideOperation, data: JsonValue | None) -> s
     if operation is GuideOperation.MODELS:
         return _render_items(data, ("id", "role", "reasoning"))
     if operation is GuideOperation.ROUTE:
-        return _render_route(data)
+        return _render_guide_route(data)
     if operation is GuideOperation.JOB:
         return _render_job(data)
     raise ValueError("guide operation is invalid")
+
+
+def _render_guide_route(data: JsonValue | None) -> str:
+    mapping = _mapping(data)
+    selected = mapping.get("selected_placement_id")
+    fallback = mapping.get("fallback_chain")
+    if not isinstance(selected, str) or not isinstance(fallback, list):
+        raise ValueError("guide route data is invalid")
+    safe_route: dict[str, JsonValue] = {
+        "selected_placement_id": validate_public_identifier(selected),
+        "fallback_chain": [validate_public_identifier(value) for value in fallback],
+    }
+    return _render_route(safe_route)
 
 
 @app.command("guide")
@@ -462,7 +476,7 @@ def guide() -> None:
 
         try:
             typer.echo(_render_guide_result(guide_request.operation, envelope.data))
-        except ValueError:
+        except Exception:
             _fail_local(
                 "E900",
                 "guide could not safely process the daemon response",
