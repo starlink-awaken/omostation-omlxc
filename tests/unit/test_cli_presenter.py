@@ -8,7 +8,10 @@ import pytest
 
 from omlxc.cli_presenter import (
     MAX_GUIDANCE_COMMANDS,
+    MAX_LINE_LENGTH,
+    MAX_REQUEST_ID_LENGTH,
     MAX_SECTION_LINES,
+    MAX_TITLE_LENGTH,
     ErrorContext,
     Guidance,
     HumanSection,
@@ -44,6 +47,27 @@ def test_sections_are_deterministic_color_free_and_bounded() -> None:
 def test_sections_reject_terminal_control_characters(title: str, lines: tuple[str, ...]) -> None:
     with pytest.raises(ValueError):
         HumanSection(title, lines)
+
+
+@pytest.mark.parametrize(
+    ("title", "lines"),
+    (
+        ("\u009bState", ("Daemon: ready",)),
+        ("State", ("Daemon: \u009bready",)),
+    ),
+)
+def test_sections_reject_c1_terminal_control_characters(title: str, lines: tuple[str, ...]) -> None:
+    with pytest.raises(ValueError, match="section text is invalid"):
+        HumanSection(title, lines)
+
+
+def test_sections_reject_values_beyond_explicit_output_limits() -> None:
+    assert (MAX_TITLE_LENGTH, MAX_LINE_LENGTH, MAX_REQUEST_ID_LENGTH) == (80, 256, 64)
+
+    with pytest.raises(ValueError, match="section text is invalid"):
+        HumanSection("t" * (MAX_TITLE_LENGTH + 1), ("Daemon: ready",))
+    with pytest.raises(ValueError, match="section text is invalid"):
+        HumanSection("State", ("l" * (MAX_LINE_LENGTH + 1),))
 
 
 def test_presentation_values_are_immutable_and_enforce_bounds() -> None:
@@ -225,6 +249,21 @@ def test_unknown_noncanonical_error_code_uses_safe_e900_heading() -> None:
     )
     for forbidden in ("\x1b", "https://", "/y"):
         assert forbidden not in rendered
+
+
+@pytest.mark.parametrize("request_id", ("req\u009b[31m", "r" * (MAX_REQUEST_ID_LENGTH + 1)))
+def test_error_uses_unavailable_for_invalid_request_id(request_id: str) -> None:
+    rendered = render_error(
+        RemoteError(code="E200", message="ignored", retryable=False), request_id=request_id
+    )
+
+    assert rendered == (
+        "ERROR E200 · Daemon unavailable\n"
+        "What happened: the private control socket could not be reached.\n"
+        "Next: omlxc daemon status\n"
+        "Request: unavailable"
+    )
+    assert request_id not in rendered
 
 
 @pytest.mark.parametrize(

@@ -7,20 +7,37 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, cast
+from unicodedata import category
 
 from omlxc.client import RemoteError
 
 MAX_SECTION_LINES: Final = 8
 MAX_GUIDANCE_COMMANDS: Final = 3
+MAX_TITLE_LENGTH: Final = 80
+MAX_LINE_LENGTH: Final = 256
+MAX_REQUEST_ID_LENGTH: Final = 64
+_INVALID_SECTION_TEXT: Final = "section text is invalid"
+_UNAVAILABLE_REQUEST_ID: Final = "unavailable"
 
 
-def _require_safe_text(value: object, label: str) -> None:
-    if (
-        not isinstance(value, str)
-        or not value
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-    ):
-        raise ValueError(f"{label} is invalid")
+def _is_safe_text(value: object, maximum_length: int) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and len(value) <= maximum_length
+        and not any(category(character).startswith("C") for character in value)
+    )
+
+
+def _require_safe_text(value: object, maximum_length: int, message: str) -> None:
+    if not _is_safe_text(value, maximum_length):
+        raise ValueError(message)
+
+
+def _safe_request_id(value: object) -> str:
+    if _is_safe_text(value, MAX_REQUEST_ID_LENGTH):
+        return cast(str, value)
+    return _UNAVAILABLE_REQUEST_ID
 
 
 def _is_stable_error_code(value: str) -> bool:
@@ -56,7 +73,7 @@ class HumanSection:
     lines: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        _require_safe_text(self.title, "section title")
+        _require_safe_text(self.title, MAX_TITLE_LENGTH, _INVALID_SECTION_TEXT)
         raw_lines = cast(object, self.lines)
         if not isinstance(raw_lines, tuple):
             raise ValueError("section lines must be a tuple")
@@ -64,7 +81,7 @@ class HumanSection:
         if len(lines) > MAX_SECTION_LINES:
             raise ValueError("section lines exceed the limit")
         for line in lines:
-            _require_safe_text(line, "section line")
+            _require_safe_text(line, MAX_LINE_LENGTH, _INVALID_SECTION_TEXT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +95,8 @@ class Guidance:
         raw_severity = cast(object, self.severity)
         if not isinstance(raw_severity, Severity):
             raise ValueError("guidance severity is invalid")
-        _require_safe_text(self.summary, "guidance summary")
-        _require_safe_text(self.explanation, "guidance explanation")
+        _require_safe_text(self.summary, MAX_TITLE_LENGTH, "guidance summary is invalid")
+        _require_safe_text(self.explanation, MAX_LINE_LENGTH, "guidance explanation is invalid")
         raw_commands = cast(object, self.commands)
         if not isinstance(raw_commands, tuple):
             raise ValueError("guidance commands must be a tuple")
@@ -87,7 +104,7 @@ class Guidance:
         if len(commands) > MAX_GUIDANCE_COMMANDS:
             raise ValueError("guidance commands exceed the limit")
         for command in commands:
-            _require_safe_text(command, "guidance command")
+            _require_safe_text(command, MAX_LINE_LENGTH, "guidance command is invalid")
 
 
 _ERROR_GUIDANCE: Final[Mapping[str, Guidance]] = MappingProxyType(
@@ -193,7 +210,7 @@ def render_error(
         raise ValueError("error is invalid")
     if not isinstance(raw_context, ErrorContext):
         raise ValueError("error context is invalid")
-    _require_safe_text(request_id, "request ID")
+    display_request_id = _safe_request_id(request_id)
     display_code = error.code if _is_stable_error_code(error.code) else "E900"
 
     guidance = _ERROR_GUIDANCE.get(display_code, _ERROR_GUIDANCE["E900"])
@@ -203,7 +220,7 @@ def render_error(
             f"ERROR {display_code} · {guidance.summary}",
             f"What happened: {guidance.explanation}",
             *(f"Next: {command}" for command in commands),
-            f"Request: {request_id}",
+            f"Request: {display_request_id}",
         )
     )
 
@@ -218,7 +235,7 @@ def status_sections(data: object) -> tuple[HumanSection, HumanSection]:
     policy = typed_data.get("policy", "interactive")
     if not isinstance(status, str) or type(degraded) is not bool or not isinstance(policy, str):
         raise ValueError("health data is invalid")
-    _require_safe_text(status, "health status")
+    _require_safe_text(status, MAX_LINE_LENGTH, "health status is invalid")
     if "\n" in policy or "\r" in policy:
         raise ValueError("health policy is invalid")
     if not _is_public_policy(policy):
