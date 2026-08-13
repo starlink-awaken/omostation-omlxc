@@ -233,6 +233,9 @@ async def test_sse_prefetches_final_failover_metadata_and_emits_unique_done(
     assert data_lines.count("[DONE]") == 1
     chunks = [json.loads(line) for line in data_lines[:-1]]
     assert chunks[0]["choices"][0]["delta"]["content"] == "hello"
+    assert chunks[-1]["choices"] == [
+        {"index": 0, "delta": {}, "finish_reason": "stop"}
+    ]
     assert inference.stream.closed
 
 
