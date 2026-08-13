@@ -135,6 +135,27 @@ async def test_openai_agent_tool_catalog_remains_bounded() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_agent_request_accepts_omp_sized_tool_description() -> None:
+    service = AgentProtocolService()
+    transport = httpx.ASGITransport(app=create_app(inference=service))
+    tools = _tools(1)
+    tools[0]["function"]["description"] = "d" * 13_466  # type: ignore[index]
+    async with httpx.AsyncClient(transport=transport, base_url="http://omlxc") as client:
+        response = await client.post(
+            "/openai/v1/chat/completions",
+            json={
+                "model": "coding",
+                "messages": [{"role": "user", "content": "inspect"}],
+                "tools": tools,
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(service.requests) == 1
+    assert len(service.requests[0].tools[0].function.description) == 13_466
+
+
+@pytest.mark.asyncio
 async def test_openai_agent_request_accepts_large_system_tools_and_tool_result_roundtrip() -> None:
     service = AgentProtocolService()
     transport = httpx.ASGITransport(app=create_app(inference=service))
