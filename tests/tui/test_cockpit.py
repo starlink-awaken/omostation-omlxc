@@ -242,7 +242,7 @@ async def test_command_palette_reuses_confirmation_before_typed_r1_mutation() ->
 
 
 @pytest.mark.asyncio
-async def test_disconnect_keeps_snapshot_stale_then_reconnects_and_applies_event() -> None:
+async def test_disconnect_keeps_snapshot_stale_and_applies_event() -> None:
     api = _tui_api()
     disconnect_ready = asyncio.Event()
     disconnect_release = asyncio.Event()
@@ -255,18 +255,28 @@ async def test_disconnect_keeps_snapshot_stale_then_reconnects_and_applies_event
     )
     second = CockpitClient("second")
     factory = SequenceFactory([first, second])
-    app = api.CockpitApp(client_factory=factory, reconnect_delays=(0.12,))
+    app = api.CockpitApp(client_factory=factory, reconnect_delays=(1.0,))
 
     async with app.run_test(size=(110, 34)) as pilot:
         await asyncio.wait_for(disconnect_ready.wait(), timeout=1.0)
         assert app.connection_state == "LIVE"
         disconnect_release.set()
-        await pilot.pause(0.01)
+        await pilot.pause()
         assert app.connection_state == "STALE"
         assert app.snapshot.nodes[0]["id"] == "mbp"
         assert app.last_event_kind == "job.running"
         assert "STALE" in str(app.query_one("#conn-badge", Static).render())
 
+
+@pytest.mark.asyncio
+async def test_disconnect_reconnects_within_bounded_delay() -> None:
+    api = _tui_api()
+    first = CockpitClient("first", disconnect=True)
+    second = CockpitClient("second")
+    factory = SequenceFactory([first, second])
+    app = api.CockpitApp(client_factory=factory, reconnect_delays=(0.12,))
+
+    async with app.run_test(size=(110, 34)) as pilot:
         for _ in range(30):
             if app.connection_state == "LIVE" and factory.calls >= 2:
                 break
