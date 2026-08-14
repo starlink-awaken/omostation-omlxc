@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.14 — 2026-08-14
+
+- Improved the human-facing CLI with compact Rich panels and tables for status,
+  lists, details, jobs, and route plans. The versioned JSON and NDJSON contracts,
+  model routing, node authorization, and daemon lifecycle behavior are unchanged.
+
 ## 3.0.13 — 2026-08-14
 
 - Added `omlxc nodes diagnose <node-id>` and its private read-only daemon API.
