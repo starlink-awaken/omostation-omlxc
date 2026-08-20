@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 logger = logging.getLogger("omlxc.mesh")
@@ -28,7 +28,7 @@ class MeshNodeInfo:
     loaded_models: list[str] = field(default_factory=list)
     active_jobs: int = 0
     latency_ms: float = 1.0
-    last_heartbeat: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_heartbeat: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @property
     def is_throttled(self) -> bool:
