@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+
 from omlxc.mesh.node_discovery import MeshDiscoveryEngine, MeshNodeInfo
 
 logger = logging.getLogger("omlxc.mesh.router")
