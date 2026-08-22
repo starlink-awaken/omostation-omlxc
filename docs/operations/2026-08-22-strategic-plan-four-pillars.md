@@ -220,3 +220,13 @@
 3. 尝试用 ADR-0422 的 escape 机制推送（`SWARM_ESCAPE_ID=local-preflight-preexisting` 和 `partial-worktree` 都试过），两个 permission class 对应的失败指纹都不在各自白名单内——说明这类"worktree 内多个 submodule 未初始化 + 已存在的 pointer drift"组合失败目前没有对应的合规逃逸路径，只剩"人类紧急"通道（绕过 swarm-git 用系统原生 git，或一次性 SWARM_ESCAPE_TOKEN），这两者都超出 agent 身份能自主判断安全性的范围，经确认后决定暂缓。
 
 **现状**：worktree `~/ws-omlxc-pointer-sync-0822`（分支 `work/omlxc-pointer-sync-0822`）保留着，本地 commit `1fd41667f` 干净（只有 `projects/omlxc` 一行改动，之前脚本自动打包的无关 `aetherforge` 改动已撤销），尚未 push。根仓库 `main` 上 `projects/omlxc` 指针仍是旧的 `1a6fc476e`，不影响 omlxc 仓库本身任何功能，只是文档性质的滞后。
+
+## 十二、daemon resident reconcile + 跨节点路由权重 — live 验证通过
+
+内存窗口转好后（可用 20-25GB，无 GENERATING）完成了两项此前推迟的 live 验证：
+
+**resident reconcile**：`omlxc daemon restart` 后，config.toml 里唯一 `resident=true` 的 placement（`embedding-local`）确认 `loaded=True available=True fresh=True`，omlx-app `/v1/models` 端点直接核实模型确实加载着。`ReconcileLoop` 的自动触发逻辑本身已在集成测试里用 FakeBackend 精确验证过调用发生（`test_resident_reconcile_loop.py`），这次生产验证确认接入没有破坏正常启动流程。
+
+**跨节点 network_cost_ms**：`omlxc routes plan mythos --explain` 试算，`EXPLANATION` 里 `defaults=throughput,ttft`（不含 `network`）—— 证明 `mythos-local` 这个 placement 的 `network_cost_ms` 现在是真实赋值（loopback→0.0），不再触发 `_score()` 里的 default 回退。远程候选 `mythos--mac-mini-m4-24g-lm_studio` 当时恰好是 `authorization_denied`（daemon 刚重启, tailscale 授权尚未完成一轮, 独立于本次改动), 没能在同一次试算里观察到"两个 available 候选靠 network_cost_ms 分高下"的直接对比，但字段确实生效这一点已经确认。
+
+**顺带排查**：daemon 重启后 watchdog.log 出现过两条"所有模型 placement 均不可用"的 WARN(05:43/05:49)，核实为重启后 CatalogProbe 第一轮探测完成前的正常瞬时状态 —— 几分钟后实时检查确认 18 个模型 0 个不可用，不是回归。`omlxc --version/daemon status/models list/config validate/routes plan` 核心命令全部正常。
