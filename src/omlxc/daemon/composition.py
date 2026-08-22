@@ -415,6 +415,13 @@ class CatalogProbe:
     ) -> None:
         observed_age = (self._now() - capability.observed_at).total_seconds()
         fresh = 0 <= observed_age <= max(self._interval * 2, 1.0)
+        # network_cost_ms 此前对所有 placement 恒为 None (=> 评分永远退化到同一个
+        # policy 默认值), 导致跨节点路由在 loopback 和 tailscale 远程节点之间完全
+        # 无法区分。这里给一个保守的静态区分(不是实测 RTT, 只是让"本地优先"这个
+        # 常识性偏好在评分里生效), 数值選 40ms 是 bounds.network_cost_ms=500ms 的
+        # 一个小比例, 不会让 network 这个本就低权重(0.08-0.10)的维度压过 ttft/
+        # throughput 等真实性能信号。
+        network_cost_ms = 0.0 if is_loopback_url(backend.base_url) else 40.0
         inventory = {model.id: model for model in models}
         loadable_any = False
         saw_model = False
@@ -466,6 +473,7 @@ class CatalogProbe:
                 available_concurrency=1 if loadable else 0,
                 local=local,
                 security_allowed=authorized and local,
+                network_cost_ms=network_cost_ms,
             )
         self._diagnostics[backend.id] = _node_diagnostic_code(
             capability=capability,
