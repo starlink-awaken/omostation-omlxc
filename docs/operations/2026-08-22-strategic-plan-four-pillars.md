@@ -210,3 +210,13 @@
 - `qwythos-9b-claude-mythos-5-1m-mlx` 正处于 `status=generating`
 
 本会话内存安全是最高优先级纪律，两个条件任一触发都不该重启 daemon，所以主动推迟。**这意味着新代码目前还没有在生产 daemon 里真正跑起来**，只是完成了实现+测试+静态验证。待内存恢复且无生成中任务时需要补做：`omlxc daemon restart --yes --confirm-impact` → 观察 `resident=True` 的 placement 是否在无人工干预下被自动加载 → 确认 `scenario-warm-keep.py`/`remote-resident-maintain.py` 两个外部脚本 workaround 此时理论上已经冗余（daemon 原生机制接管了同样的职责），可以考虑后续从 `pipeline-watchdog.sh` 移除，但这一步要等 daemon 原生路径实测稳定运行一段时间后再做，不是今天就动。
+
+### 根仓库(omostation) submodule 指针同步 — 暂缓，保留 worktree
+
+按惯例应同步根仓库对 `projects/omlxc` 的 gitlink 记录（旧: `1a6fc476e` → 新: `a2b7893`），过程中意外发现两个和这次任务无关但值得记录的问题：
+
+1. **根仓库现在强制走 SGF-v1 worktree/PR 流程**，直接 push main 会被拒绝。用 `bin/gac/gac-worktree.sh claim/submit` 走这个流程时，`claim` 出来的 worktree 里 `projects/cockpit` 子模块处于半初始化状态（gitdir 骨架存在但 HEAD 指向的 ref 缺对象），导致 pre-push hook 报"无法读取当前分支"——从主仓库本地 fetch 同一个 SHA 后修复。
+2. **修复后暴露了一个更深的、与本次任务无关的既有问题**：`pointer-drift` 检查显示根仓库当前索引记录的 `projects/cockpit` 指针（`5231d75`）不在 cockpit 自己的 `origin/main` 上（DIVERGED）。这不是本次改动引入的，是根仓库当前 main 分支本身已经存在的漂移。加上这个 worktree 里 `ecos`/`omo`/`agora` 等 submodule 本就未初始化，触发了一长串 CI 预检失败（ModuleNotFound、文件缺失、ruff scope 未初始化），全部与 `projects/omlxc` 这一行 gitlink diff 无关。
+3. 尝试用 ADR-0422 的 escape 机制推送（`SWARM_ESCAPE_ID=local-preflight-preexisting` 和 `partial-worktree` 都试过），两个 permission class 对应的失败指纹都不在各自白名单内——说明这类"worktree 内多个 submodule 未初始化 + 已存在的 pointer drift"组合失败目前没有对应的合规逃逸路径，只剩"人类紧急"通道（绕过 swarm-git 用系统原生 git，或一次性 SWARM_ESCAPE_TOKEN），这两者都超出 agent 身份能自主判断安全性的范围，经确认后决定暂缓。
+
+**现状**：worktree `~/ws-omlxc-pointer-sync-0822`（分支 `work/omlxc-pointer-sync-0822`）保留着，本地 commit `1fd41667f` 干净（只有 `projects/omlxc` 一行改动，之前脚本自动打包的无关 `aetherforge` 改动已撤销），尚未 push。根仓库 `main` 上 `projects/omlxc` 指针仍是旧的 `1a6fc476e`，不影响 omlxc 仓库本身任何功能，只是文档性质的滞后。
