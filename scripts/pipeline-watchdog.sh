@@ -76,6 +76,13 @@ python3 "$SCRIPT_DIR/remote-resident-maintain.py" >>"$LOG" 2>&1
 #     接入 daemon, 用同样的"外部脚本 + 现有接口"模式补齐) ---
 python3 "$SCRIPT_DIR/scenario-warm-keep.py" >>"$LOG" 2>&1
 
+# --- mbp 内存哨兵 (2026-08-23: qwythos-9b 在 LM Studio 里 generating 时
+#     把 swap 打到 24GB/26GB, 挤崩了 oMLX App 进程。omlxc 的 idle_ttl 只
+#     管自己控制的 placement, 管不到 LM Studio 里用户手动加载的模型 ——
+#     这次真实故障恰恰发生在这个盲区。只做监控+告警+留痕, 不擅自 unload
+#     LM Studio 侧的模型) ---
+python3 "$SCRIPT_DIR/memory-sentinel.py" >>"$LOG" 2>&1
+
 # --- 模型级可用性(读探测缓存，不发真实生成请求，代价很低) ---
 # 只能测出"探测都连不上"这一类(如 oMLX App 整体下线导致 placement 全灭)；
 # 输出乱码这类要真实生成才测得到的问题不在这一层，见 deep-registration-audit.sh。
