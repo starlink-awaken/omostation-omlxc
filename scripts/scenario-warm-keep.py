@@ -42,7 +42,6 @@ WARM_TARGETS = [
     # 紧张时如实 SKIP-MEM 降级, 不硬抢内存(2026-08-23 swap 事故教训)。
     ("qwythos-9b-claude-mythos-5-1m-mlx", "mythos 本机 LM 兜底, TTL 到期自动拉回", 19.0, "chat", LM_URL),
 ]
-]
 
 
 def real_free_gb() -> float:
