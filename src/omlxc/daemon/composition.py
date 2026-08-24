@@ -285,7 +285,16 @@ class CatalogProbe:
         self._now = now
         self._storage = storage
         self._interval = config.daemon.probe_interval_seconds
-        self._timeout = min(max(self._interval, 0.1), 5.0)
+        # 探测预算必须覆盖 LM Studio 后端的结构性开销: SSH 控制通道往返 ×2
+        # (discover 与 list_models 各调一次 _list_models_with_control, 实测
+        # ~0.5s/次) + 就绪探测 chat 的独立超时 _PROBE_CHAT_TIMEOUT=5.0s。
+        # 旧的 5.0s 硬 clamp 在数学上就装不下 (2*0.5+5.0=6.0s > 5.0s): 只要
+        # 目标模型处于 loaded 态, 每轮探测必被 backend 级超时先掐死 →
+        # _fail_stale → 全部 placement 误判 stale —— 2026-08-24 mbp 本机
+        # LM Studio "全灭"误报与路由不敢选 LM 兜底的共同根因。
+        # 取 max(5.0, interval): 生产 interval=10s 给足余量; 极小 interval
+        # 也保底 5s, 不比单次 probe chat 更紧。
+        self._timeout = max(5.0, self._interval)
         self._placements = {item.id: item for item in config.placements}
         self._models = {item.id: item for item in config.models}
         self._nodes = {item.id: item for item in config.nodes}
