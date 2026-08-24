@@ -5,6 +5,14 @@
 set -uo pipefail
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+# 历史归档(2026-08-24): 每次运行自动追加到 status-history.log, 支撑 48h 观察
+# 期的趋势回溯(swap 回落/常驻稳定性/节点在线率)。先裁剪再 append, 上限 3000 行
+# (约数百次快照, 覆盖数周)。回看: grep "Placement:" ~/.config/omlxc/status-history.log
+HISTORY="$HOME/.config/omlxc/status-history.log"
+mkdir -p "$(dirname "$HISTORY")"
+[ -f "$HISTORY" ] && tail -n 3000 "$HISTORY" > "$HISTORY.tmp" && mv "$HISTORY.tmp" "$HISTORY"
+exec > >(tee -a "$HISTORY") 2>&1
+
 echo "=== omlxc 全链路状态 $(date '+%Y-%m-%d %H:%M:%S') ==="
 echo ""
 
