@@ -33,9 +33,17 @@ try:
     total_p=sum(len(m.get('placement_states',[])) for m in items)
     avail_p=sum(1 for m in items for p in m.get('placement_states',[]) if p.get('available'))
     print(f'  模型: {total} 个 | Placement: {avail_p}/{total_p} 可用')
-    zero=[m['id'] for m in items if m.get('placement_states') and not any(p.get('available') for p in m['placement_states'])]
+    # 2026-08-24 口径修正: available=False 有两种成因, 必须区分展示 --
+    #   fresh=True  → 探测刚成功, loadable=False 是『探测确认不可用』(真问题)
+    #   fresh=False → 探测超时/过期(_fail_stale), 只说明『口径未知』。
+    # 此前 0/32 全灭误报正是把 LM Studio JIT 慢 + remote 离线造成的
+    # 瞬态 stale 当成了实锤 (实测同一时刻 oMLX App coding 生成正常)。
+    zero=[m['id'] for m in items if m.get('placement_states') and not any(p.get('available') or not p.get('fresh') for p in m['placement_states'])]
     if zero:
-        print(f'  ⚠️  全灭: {\", \".join(zero)}')
+        print(f'  ⚠️  全灭(探测确认): {\", \".join(zero)}')
+    stale_only=[m['id'] for m in items if m.get('placement_states') and not any(p.get('available') for p in m['placement_states']) and m['id'] not in zero]
+    if stale_only:
+        print(f'  ℹ️  探测过期(不代表不可用): {\", \".join(stale_only)}')
 except Exception as e:
     print(f'  (读取失败: {e})')
 "

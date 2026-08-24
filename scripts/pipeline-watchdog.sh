@@ -66,6 +66,54 @@ if ! "$OMLXC" daemon status --json 2>/dev/null | grep -q '"running"'; then
   "$OMLXC" daemon restart --yes --confirm-impact >>"$LOG" 2>&1
 fi
 
+# --- remote 节点在线告警 (2026-08-24: mac-mini/y7000p 物理离线 23h/1d 无任何
+#     通知, 只能靠手动 full-status 被动发现。tailscale status 实测 tx>0/rx=0
+#     证明确认过是对端关机/断网而非 tailscale 故障, 属"只能告警不能自愈"类。
+#     桌面通知 30 分钟去重, 状态落盘防止重启后刷屏) ---
+TS_CLI=""
+for _c in /opt/homebrew/bin/tailscale /usr/local/bin/tailscale "$HOME/.local/bin/tailscale" "/Applications/Tailscale.app/Contents/MacOS/Tailscale"; do
+  if [ -x "$_c" ] || command -v "$_c" >/dev/null 2>&1; then TS_CLI="$_c"; break; fi
+done
+if [ -n "$TS_CLI" ]; then
+  "$TS_CLI" status --json 2>/dev/null | python3 -c "
+import json,subprocess,sys,time
+try:
+    peers=json.load(sys.stdin).get('Peer',{})
+except Exception:
+    sys.exit(0)
+WATCH=('mac-mini','xia-y7000p')  # 算力节点; macbook-pro-2014 等非算力设备不盯
+# Peer 的 key 是 nodekey:xxx, 人类可读名在 DNSName(如 mac-mini.xxx.ts.net.)
+# 或 HostName(可能是中文如 '夏明星的Mac mini'), 用子串匹配两者最稳。
+def _watched(p):
+    names=f\"{p.get('DNSName','')} {p.get('HostName','')}\"
+    return any(w in names for w in WATCH)
+offline=sorted(p.get('DNSName','').split('.')[0] or p.get('HostName','?')
+               for p in peers.values() if _watched(p) and not p.get('Online'))
+state_file='$LOG_DIR/node-offline-notified.json'
+try:
+    last=json.load(open(state_file))
+except Exception:
+    last={}
+if not offline:
+    open(state_file,'w').write('{}')
+    sys.exit(0)
+now=time.time()
+due=[n for n in offline if now-last.get(n,0)>1800]
+if not due:
+    sys.exit(0)
+msg='、'.join(due)
+print(f'[WARN] remote 节点离线: {msg} (remote_resident 维护无对象, 算力池仅剩本机)')
+for n in due:
+    last[n]=now
+open(state_file,'w').write(json.dumps(last))
+subprocess.run(['osascript','-e',
+    f'display notification \"{msg} 已离线超过阈值, 算力池仅剩本机\" with title \"omlxc 节点离线告警\"'],
+    capture_output=True)
+" >> "$LOG" 2>&1
+else
+  log "[WARN] tailscale CLI 不可用, 节点在线检测跳过"
+fi
+
 # --- remote_resident 常驻策略维护 (2026-08-22: 此前是纯声明性死配置,
 #     全代码库无任何执行逻辑读取, mac-mini/y7000p 的常驻全靠人工 SSH
 #     维持, TTL 到期不会自动恢复。本脚本让它真正生效) ---
@@ -84,14 +132,17 @@ python3 "$SCRIPT_DIR/scenario-warm-keep.py" >>"$LOG" 2>&1
 python3 "$SCRIPT_DIR/memory-sentinel.py" >>"$LOG" 2>&1
 
 # --- 模型级可用性(读探测缓存，不发真实生成请求，代价很低) ---
-# 只能测出"探测都连不上"这一类(如 oMLX App 整体下线导致 placement 全灭)；
-# 输出乱码这类要真实生成才测得到的问题不在这一层，见 deep-registration-audit.sh。
+# 2026-08-24 口径修正: available=False ∧ fresh=False 是探测超时(_fail_stale,
+# 常见诱因: LM Studio JIT 慢、remote 节点离线), 属瞬态口径未知, 不算实锤
+# —— 此前曾把这类报成"全灭"误报。只对 fresh=True(探测成功)但
+# available=False 的模型报 WARN。输出乱码这类要真实生成才测得到的
+# 问题不在这一层，见 deep-registration-audit.sh。
 zero_avail=$("$OMLXC" models list --json 2>/dev/null | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
     items=d['data']['items']
-    bad=[m['id'] for m in items if m.get('placement_states') and not any(p.get('available') for p in m['placement_states'])]
+    bad=[m['id'] for m in items if m.get('placement_states') and not any(p.get('available') or not p.get('fresh') for p in m['placement_states'])]
     print(','.join(bad))
 except Exception:
     pass
