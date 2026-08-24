@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 
@@ -98,6 +100,36 @@ def is_warm(model_id: str, role: str, base_url: str = BASE_URL) -> bool:
     return _probe(model_id, role, timeout=3.0, base_url=base_url) == 200
 
 
+def lm_loaded(model_id: str) -> bool:
+    """LM Studio 侧已加载判断: lms ps 只列已加载模型, 命中 identifier/modelKey
+    即 loaded。绝不走 HTTP 探测触发 JIT —— JIT 加载用 LM Studio 应用默认
+    context length(qwythos 是满血 1M), 仅 KV cache 就把 swap 打爆过
+    (2026-08-24 实测: 保活探测触发 JIT 后 swap 17→24.6GB)。"""
+    result = subprocess.run(
+        [str(Path.home() / ".lmstudio" / "bin" / "lms"), "ps", "--json"],
+        capture_output=True, text=True, timeout=15,
+    )
+    try:
+        rows = json.loads(result.stdout)
+    except Exception:
+        return False
+    return any(
+        r.get("identifier") == model_id or r.get("modelKey") == model_id
+        for r in rows if isinstance(r, dict)
+    )
+
+
+def lm_load_capped(model_id: str, context_length: int) -> bool:
+    """显式限 ctx 加载(lms load), 与 remote-resident-maintain 同一模式。
+    c=64K: 权重之外的 KV cache 从 1M ctx 的几十 GB 收敛到 ~2GB 量级。"""
+    result = subprocess.run(
+        [str(Path.home() / ".lmstudio" / "bin" / "lms"), "load", model_id,
+         "-c", str(context_length), "--ttl", "3600"],
+        capture_output=True, text=True, timeout=180,
+    )
+    return result.returncode == 0
+
+
 def main() -> int:
     if lms_generating_locally():
         print("SKIP-BUSY: LM Studio 本地有模型正在 GENERATING, 让路")
@@ -108,9 +140,27 @@ def main() -> int:
     # 卡死。每次真正触发加载后重新测量内存, 因为 omlx-app 的加载会实时
     # 占用内存, 后续目标的判断必须基于最新状态。
     for model_id, note, mem_gb, role, base_url in sorted(WARM_TARGETS, key=lambda t: t[2]):
-        # 先确认是否已温着 —— 这一步只是个短超时探测, 几乎不占内存,
-        # 必须排在内存预算检查之前。否则"已加载但此刻空闲内存偏紧"的
-        # 模型会被误判为需要新触发加载而 SKIP, 白白浪费一次已有的热身。
+        if base_url == LM_URL:
+            # LM Studio 侧: lms ps 判温 + lms load 限 ctx 显式加载。
+            # 不用 HTTP is_warm/_probe —— 那会触发 JIT 按 1M 满血 ctx
+            # 分配 KV cache, 是 swap 爆炸的直接通道。
+            if lm_loaded(model_id):
+                print(f"OK: {model_id} 已温着 ({note})")
+                continue
+            free = real_free_gb()
+            if free < MIN_FREE_GB or free < mem_gb + 8:
+                print(f"SKIP-MEM: {model_id} 未温着, 需要 ~{mem_gb}GB 触发新加载, 可用 {free:.1f}GB 不足, 跳过")
+                continue
+            print(
+                f"{'WARMED' if lm_load_capped(model_id, 65536) else 'FAIL'}: {model_id} "
+                "(lms load, c=64K 防 1M KV cache 爆 swap)"
+            )
+            continue
+
+        # oMLX App 侧: 先确认是否已温着 —— 这一步只是个短超时探测, 几乎
+        # 不占内存, 必须排在内存预算检查之前。否则"已加载但此刻空闲内存
+        # 偏紧"的模型会被误判为需要新触发加载而 SKIP, 白白浪费一次已有的
+        # 热身。
         if is_warm(model_id, role, base_url):
             print(f"OK: {model_id} 已温着 ({note})")
             continue
