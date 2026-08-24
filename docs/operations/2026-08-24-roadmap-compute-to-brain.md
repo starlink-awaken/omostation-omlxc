@@ -53,3 +53,16 @@
 
 - 进行中: #6(48h)、#10(whisper 差一步)、#11(WindowServer 差 sudo)
 - 今日提交: omlxc ~12 / aetherforge 3 / ecos 1, 测试 +12 全绿
+
+## ⚠️ 事故记录(20:3x): 共享 worktree 被并行机制拖回旧提交
+
+- 现象: full-status/usage-stats/scenario-warm-keep 三个当日脚本在磁盘上
+  变回下午旧版(心跳段/预算红线/口径分流全部"消失")
+- 根因: reflog 显示 `checkout: moving from main to b2c1af8` —— 某并行
+  agent/机制将共享主 worktree 的 HEAD 切到旧提交(detached), 工作区随之
+  回退。**已提交内容零丢失**(全部在 main), 一条 git checkout main 复原
+- 教训: git 保护系统(M1/M2/M3)防 reset --hard, 但 "checkout 拖回旧提交"
+  是另一条通道 —— 建议主 worktree 出现非 main detached HEAD 时告警;
+  多 agent 共享主树期间, 每轮运维脚本执行前先 `git rev-parse --abbrev-ref HEAD`
+  自检(成本一条命令)
+- 恢复: git checkout main(f4f6e12), 三文件 grep 验证心跳/预算/分流齐全
