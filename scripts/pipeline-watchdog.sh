@@ -81,7 +81,7 @@ try:
     peers=json.load(sys.stdin).get('Peer',{})
 except Exception:
     sys.exit(0)
-WATCH=('mac-mini','xia-y7000p')  # 算力节点; macbook-pro-2014 等非算力设备不盯
+WATCH=('mac-mini','xia-y7000p')  # mac-mini=主力常驻节点(7x24), y7000p=弹性; 其余设备不盯
 # Peer 的 key 是 nodekey:xxx, 人类可读名在 DNSName(如 mac-mini.xxx.ts.net.)
 # 或 HostName(可能是中文如 '夏明星的Mac mini'), 用子串匹配两者最稳。
 def _watched(p):
