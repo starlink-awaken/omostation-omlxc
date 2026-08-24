@@ -96,5 +96,24 @@ echo "--- 看门狗最近事件 (最近5条，全绿=无输出) ---"
 tail -5 ~/.config/omlxc/watchdog.log 2>/dev/null || echo "  (无日志)"
 
 echo ""
+echo "--- 自治机制心跳 (状态文件最近写入距今; ⚠️=超期=疑似静默死) ---"
+# 2026-08-24 P1-3: free_pool 曾因漏 import 静默死半月无人知, watchdog 的
+# except 也吞过异常 —— 自治机制必须有"活着"的一屏可见证据。判据是各机制
+# 周期性触碰的状态文件 mtime: 超过周期阈值即标 ⚠️, 提示人工核查。
+heartbeat() { # $1=名称 $2=状态文件 $3=阈值分钟
+  local name="$1" file="$2" max_min="$3"
+  if [ ! -e "$file" ]; then printf "  ⚠️  %-28s 状态文件不存在\n" "$name"; return; fi
+  local age_min=$(( ($(date +%s) - $(stat -f %m "$file")) / 60 ))
+  if [ "$age_min" -le "$max_min" ]; then
+    printf "  ✅ %-28s %smin 前 (阈值 %smin)\n" "$name" "$age_min" "$max_min"
+  else
+    printf "  ⚠️  %-28s %smin 前 (超阈值 %smin!)\n" "$name" "$age_min" "$max_min"
+  fi
+}
+heartbeat "omlxc daemon 探测"      "$HOME/.omlx/stats.json"                            10
+heartbeat "pipeline-watchdog 5min"  "$HOME/.config/omlxc/watchdog.log"                  10
+heartbeat "gateway free_pool scan"  "$HOME/.aetherforge/state/free_pool_last_seen.json" 15
+
+echo ""
 echo "--- 磁盘 (模型卷) ---"
 df -h /Volumes/Model 2>/dev/null | tail -1 || echo "  (无法读取)"

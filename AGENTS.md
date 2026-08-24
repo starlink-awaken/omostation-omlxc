@@ -13,3 +13,11 @@
 - Do not globally install `omlxc`, modify `/opt/homebrew/bin/omlxc`, contact
   real hardware from ordinary tests, or add public-release material.
 - Keep personal configuration, secrets, model files, logs, and state out of git.
+- Autonomous/daemon capabilities ship only with real-run evidence in the
+  delivery note (a log line or emitted event actually observed). Green unit
+  tests do not prove wiring: 2026-08-24 alone surfaced three "complete"
+  capabilities that were dead on arrival — an unwired resident reconcile loop,
+  a probe timeout mathematically too small, and a scanner module that threw
+  `NameError` on first use behind a swallowed except. Every periodic mechanism
+  must also touch a state file each cycle so `full-status.sh` heartbeat checks
+  can detect silent death.
