@@ -26,15 +26,22 @@ for _proxy_var in ("all_proxy", "ALL_PROXY", "http_proxy", "HTTP_PROXY", "https_
     os.environ.pop(_proxy_var, None)
 
 BASE_URL = "http://127.0.0.1:8000"
+LM_URL = "http://127.0.0.1:1234"
 MIN_FREE_GB = 20.0  # 比常规 12GB 红线更保守: 这是主动预热, 不是响应真实请求
 WARM_TARGETS = [
-    # (backend_model_id, 逻辑用途, memory_gb, role) — role 决定探测/保活
-    # 走 chat 端点还是 embeddings 端点(2026-08-22 实测: embedding 角色
-    # 模型打 /v1/chat/completions 会 400 "not an LLM/chat model")。
-    ("embedding", "embedding 场景默认模型, 已 resident, 复核用", 8.0, "embedding"),
-    ("vision", "vision 场景默认模型, 体积小, 低风险高频", 6.0, "chat"),
-    ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat"),
-    ("qwen-3.8-27b", "chat 场景默认模型, 已验证响应正常", 24.0, "chat"),
+    # (backend_model_id, 逻辑用途, memory_gb, role, base_url) — role 决定
+    # 探测/保活走 chat 端点还是 embeddings 端点(2026-08-22 实测: embedding
+    # 角色模型打 /v1/chat/completions 会 400 "not an LLM/chat model")。
+    ("embedding", "embedding 场景默认模型, 已 resident, 复核用", 8.0, "embedding", BASE_URL),
+    ("vision", "vision 场景默认模型, 体积小, 低风险高频", 6.0, "chat", BASE_URL),
+    ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat", BASE_URL),
+    ("qwen-3.8-27b", "chat 场景默认模型, 已验证响应正常", 24.0, "chat", BASE_URL),
+    # 2026-08-24 补 LM Studio 侧: mythos/mythos-fast 在本机 LM 的兜底模型
+    # (remote 节点离线期间是唯一活路), 此前 TTL 1h 到期卸载后无人拉起,
+    # 兜底链路名存实亡。18.8GB 大块头走同一套内存红线(free >= 19+8GB),
+    # 紧张时如实 SKIP-MEM 降级, 不硬抢内存(2026-08-23 swap 事故教训)。
+    ("qwythos-9b-claude-mythos-5-1m-mlx", "mythos 本机 LM 兜底, TTL 到期自动拉回", 19.0, "chat", LM_URL),
+]
 ]
 
 
@@ -64,15 +71,16 @@ def lms_generating_locally() -> bool:
     return any(r.get("status") == "generating" for r in rows)
 
 
-def _probe(model_id: str, role: str, timeout: float) -> int | None:
+def _probe(model_id: str, role: str, timeout: float, base_url: str = BASE_URL) -> int | None:
     """返回 HTTP 状态码, 网络层失败返回 None。role 决定走哪个端点
-    (2026-08-22 实测: embedding 角色打 chat 端点会 400)。"""
+    (2026-08-22 实测: embedding 角色打 chat 端点会 400)。base_url 区分
+    oMLX App(8000) 与本机 LM Studio(1234) 两个保活面。"""
     try:
         if role == "embedding":
-            r = httpx.post(f"{BASE_URL}/v1/embeddings", json={"model": model_id, "input": "hi"}, timeout=timeout)
+            r = httpx.post(f"{base_url}/v1/embeddings", json={"model": model_id, "input": "hi"}, timeout=timeout)
         else:
             r = httpx.post(
-                f"{BASE_URL}/v1/chat/completions",
+                f"{base_url}/v1/chat/completions",
                 json={"model": model_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
                 timeout=timeout,
             )
@@ -83,11 +91,12 @@ def _probe(model_id: str, role: str, timeout: float) -> int | None:
         return None
 
 
-def is_warm(model_id: str, role: str) -> bool:
+def is_warm(model_id: str, role: str, base_url: str = BASE_URL) -> bool:
     # oMLX App 没有 lms ps 那样的"已加载"状态查询, 用一次极短超时的探测
     # 请求判断是否已温着(冷启动会显著更慢, 这里只关心"能否快速响应",
-    # 不消耗额外资源去验证生成内容本身)。
-    return _probe(model_id, role, timeout=3.0) == 200
+    # 不消耗额外资源去验证生成内容本身)。LM Studio 侧同理: 模型已加载
+    # 时短探测秒回, 未加载时 JIT 冷启动撑不进 3s 窗口。
+    return _probe(model_id, role, timeout=3.0, base_url=base_url) == 200
 
 
 def main() -> int:
@@ -99,11 +108,11 @@ def main() -> int:
     # 一个大模型的内存需求把排在它前面、原本能轻松预热的小模型也一起
     # 卡死。每次真正触发加载后重新测量内存, 因为 omlx-app 的加载会实时
     # 占用内存, 后续目标的判断必须基于最新状态。
-    for model_id, note, mem_gb, role in sorted(WARM_TARGETS, key=lambda t: t[2]):
+    for model_id, note, mem_gb, role, base_url in sorted(WARM_TARGETS, key=lambda t: t[2]):
         # 先确认是否已温着 —— 这一步只是个短超时探测, 几乎不占内存,
         # 必须排在内存预算检查之前。否则"已加载但此刻空闲内存偏紧"的
         # 模型会被误判为需要新触发加载而 SKIP, 白白浪费一次已有的热身。
-        if is_warm(model_id, role):
+        if is_warm(model_id, role, base_url):
             print(f"OK: {model_id} 已温着 ({note})")
             continue
 
@@ -112,7 +121,7 @@ def main() -> int:
             print(f"SKIP-MEM: {model_id} 未温着, 需要 ~{mem_gb}GB 触发新加载, 可用 {free:.1f}GB 不足, 跳过")
             continue
 
-        status = _probe(model_id, role, timeout=90.0)
+        status = _probe(model_id, role, timeout=90.0, base_url=base_url)
         print(f"{'WARMED' if status == 200 else 'FAIL'}: {model_id} status={status}")
 
     return 0
