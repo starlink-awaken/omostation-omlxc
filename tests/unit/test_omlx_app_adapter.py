@@ -185,7 +185,8 @@ async def test_unreachable_discovery_is_typed_and_not_ready() -> None:
         httpx.Response(200, json={"status": "running", "version": "0.5.7"}),
         httpx.Response(200, json={"status": "ok", "version": "not-semver"}),
         httpx.Response(200, json={"status": "ok", "version": "0.4.99"}),
-        httpx.Response(200, json={"status": "ok", "version": "0.6.0"}),
+        # 2026-08-26: 上界 (0,6,0)→(0,7,0) 后, 0.6.0 合法; 拒绝清单对齐新上界
+        httpx.Response(200, json={"status": "ok", "version": "0.7.0"}),
         httpx.Response(200, json={"status": "ok", "version": "1.0.0"}),
     ],
 )
