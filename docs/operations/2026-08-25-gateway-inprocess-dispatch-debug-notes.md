@@ -110,3 +110,15 @@ from _llm_helper import llm_ask; print(llm_ask('1+1=?', model='coding'))"
 **容量窗口开法**(明早或内存富余时): warm-keep 会在可用内存 ≥24+8GB 时
 自动温 coding(WATCH 目标在册), 无需人工干预 — 届时 mail-daemon 下一轮
 自动走本地直连。
+
+## 🎯 UDS 三层剥穿终报 (深夜续)
+
+SDK 完整请求体 → 422 E100(daemon 校验层挑剔 SDK 附加字段);
+**最小请求体(model+messages) → 409 insufficient_capacity** —
+传输/路径/协议三层全通, 最终门 = 内存容量(与 warm-keep SKIP-MEM 同一
+物理约束: 可用 21GB < coding 24GB)。
+
+**端到端出话的完整判定链到此收敛为单一变量: 内存**。
+warm-keep 在可用 ≥32GB 时自动温 coding → UDS 直连即刻可用。
+另: 422(SDK 字段兼容)是次要层, 若 daemon 校验层愿放宽(或 provider
+侧过滤附加字段)可顺带修 — 挂 omlxc daemon 侧小债。
