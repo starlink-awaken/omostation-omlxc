@@ -59,3 +59,17 @@ unix:// base_url(Missing credentials/非法URL)。需要 httpx UDS transport
   (f1d7d33) — 30min 周期下一轮 jsonl 应见非零分类
 - 排障摩擦教训: mail-daemon.err **无时间戳**, 新旧症状混流; 建议下一棒
   先给 err 加时间戳
+
+## 📌 终局情报 (2026-08-25 深夜, 老王撤出该战场)
+
+- `_llm_helper.py` 是**并行 agent 的活跃施工区**(本轮第三次回写老王的修改,
+  sys.path 的 final-ae3570f 优先被改回主仓正序) — 依据多 agent 纪律撤出,
+  避免互踩(同日已发生三次 checkout 拖回事故)。
+- **新悬案实证**: 主仓版(Phase6 合并后)llm_gateway 被 import 时,
+  `_get_gateway` 的 refresh 仅 0.8s 瞬间完成且 registry=0(成功那次 6.6s/366
+  模型) — 疑主仓版 refresh/create 行为与 final-ae3570f 版**版本漂移**(两份
+  代码不同行为的直接证据)。openai import 1.5s 预热后依旧 — 非 import 锁。
+- **下一棒起点**: 先统一"进程内到底该 import 哪份 gateway 代码"(final 运行
+  副本 vs 主仓 Phase6 版), 再看主仓版 refresh 为何 0.8s 空转。老王侧的
+  unix:// 白名单(aetherforge 03eca4c)与 qwen-3.8-27b 入 SSOT(ecos 9b0cc62)
+  两修复在两份代码里均已生效, 不受此影响。
