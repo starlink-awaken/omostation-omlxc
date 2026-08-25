@@ -141,6 +141,23 @@ class OpenAIChatBody(ApiModel):
         validation_alias=AliasChoices("max_tokens", "max_completion_tokens"),
     )
     temperature: float = Field(default=0.0, ge=0, le=2)
+    # 2026-08-25 OpenAI 标准兼容字段集: /openai/v1 端点的 ApiModel(extra=forbid)
+    # 此前缺这些字段, OpenAI SDK 完整请求体(带 stop 等)直接 422 E100。
+    # 显式接受并忽略未实现的推理差异(UDS 直连链路实测: temperature 在列
+    # 单发 409 直奔容量层, stop 缺失炸 422 —— 补齐后 SDK 请求直达路由)。
+    stop: tuple[str, ...] | None = Field(default=None, max_length=16)
+
+    @field_validator("stop", mode="before")
+    @classmethod
+    def _stop_str_to_tuple(cls, value: object) -> object:
+        # OpenAI API 允许 stop 为裸 str 或 list — 统一为 tuple
+        return (value,) if isinstance(value, str) else value
+    top_p: float = Field(default=1.0, ge=0, le=1)
+    n: int = Field(default=1, ge=1, le=1)  # 仅支持单候选
+    presence_penalty: float = Field(default=0.0, ge=-2, le=2)
+    frequency_penalty: float = Field(default=0.0, ge=-2, le=2)
+    seed: int | None = None
+    user: str = Field(default="", max_length=256)
     profile: RouteProfile = RouteProfile.INTERACTIVE
     thinking: bool = False
     reasoning: bool = False
