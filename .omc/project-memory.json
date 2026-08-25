@@ -30,7 +30,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "cd \"/Users/xiamingxing/Workspace/projects/omlxc\" && uv run pytest tests/unit/test_remote_resident_role.py -q 2>&1 | tail -2 && echo \"=== 全量回归 ===\" && uv run pytest -q 2>&1 | tail -3",
+    "testCommand": "cd \"/Users/xiamingxing/Workspace/projects/omlxc\" && uv run pytest -q 2>&1 | tail -1 && rtk git add src/omlxc/api/app.py tests/unit/test_openai_compat_body.py && rtk git commit -q -m \"fix(api): 补 SSOT 透传 thinking_budget — 第十层(B分支 422 终修)\n\nSSOT request_defaults 的 thinking_budget(默认关 thinking)经 gateway\nextra_body 平铺到达, daemon schema 不认 → B 分支(SSOTProviderAdapter\n路径, journey/mail 系走此)恒 422 落兜底。与前三透传字段同处置。\nTDD 红→绿, 全量回归通过。\" && git push origin main 2>&1 | tail -1 && uv tool install --force . 2>&1 | tail -1 && ~/.local/bin/omlxc daemon restart --yes --confirm-impact 2>&1 | tail -1 && sleep 35 && echo \"=== B 分支终验(journey 链路) ===\" && python3 -c \"\nimport sys, time\nsys.path.insert(0, '/Users/xiamingxing/Workspace/bin/ssot')\nfrom _llm_helper import llm_ask\nt0=time.time()\nr = llm_ask('回答一个词: 1+1=?', timeout=60, model='qwen-3.8-27b')\nprint(f'B分支终验: {time.time()-t0:.1f}s ->', (r[:30] if r else 'None'))\" 2>&1 | grep -E \"终验|422|兜底\" | tail -3",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -158,8 +158,8 @@
   "hotPaths": [
     {
       "path": "scripts/pipeline-watchdog.sh",
-      "accessCount": 6,
-      "lastAccessed": 1787639438259,
+      "accessCount": 9,
+      "lastAccessed": 1787661443652,
       "type": "file"
     },
     {
@@ -211,6 +211,30 @@
       "type": "file"
     },
     {
+      "path": "docs/operations/2026-08-25-gateway-inprocess-dispatch-debug-notes.md",
+      "accessCount": 3,
+      "lastAccessed": 1787644262866,
+      "type": "file"
+    },
+    {
+      "path": "src/omlxc/api/app.py",
+      "accessCount": 3,
+      "lastAccessed": 1787658677939,
+      "type": "file"
+    },
+    {
+      "path": "scripts/weekly-report.py",
+      "accessCount": 3,
+      "lastAccessed": 1787661421383,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-26-multi-agent-collaboration-protocol-proposal.md",
+      "accessCount": 3,
+      "lastAccessed": 1787663605750,
+      "type": "file"
+    },
+    {
       "path": "scratch/benchmark_leaderboard.md",
       "accessCount": 2,
       "lastAccessed": 1787211682633,
@@ -232,6 +256,12 @@
       "path": "scripts/asr/README.md",
       "accessCount": 2,
       "lastAccessed": 1787641956533,
+      "type": "file"
+    },
+    {
+      "path": "scripts/full-status.sh",
+      "accessCount": 2,
+      "lastAccessed": 1787653314124,
       "type": "file"
     },
     {
@@ -301,21 +331,39 @@
       "type": "file"
     },
     {
-      "path": "scripts/full-status.sh",
-      "accessCount": 1,
-      "lastAccessed": 1787624007144,
-      "type": "file"
-    },
-    {
       "path": "scripts/scenario-warm-keep.py",
       "accessCount": 1,
       "lastAccessed": 1787627621690,
       "type": "file"
     },
     {
-      "path": "docs/operations/2026-08-25-gateway-inprocess-dispatch-debug-notes.md",
+      "path": "docs/operations/2026-08-25-retrospective.md",
       "accessCount": 1,
-      "lastAccessed": 1787640688612,
+      "lastAccessed": 1787644657956,
+      "type": "file"
+    },
+    {
+      "path": "tests/unit/test_openai_compat_body.py",
+      "accessCount": 1,
+      "lastAccessed": 1787653865952,
+      "type": "file"
+    },
+    {
+      "path": "scripts/daemon-upgrade-precheck.sh",
+      "accessCount": 1,
+      "lastAccessed": 1787656237987,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-25-iris-cockpit-migration-decision.md",
+      "accessCount": 1,
+      "lastAccessed": 1787661461943,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-25-live-journey-seven-steps-graduation.md",
+      "accessCount": 1,
+      "lastAccessed": 1787662195130,
       "type": "file"
     }
   ],

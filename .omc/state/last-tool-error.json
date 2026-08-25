@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"ssh -o ConnectTimeout=15 -o BatchMode=yes xia@100.64.43.36 'netsh advfirewall firewall add rule name=\\\"py-asr-allow\\\" dir=in action=allow program=\\\"C:\\\\Users\\\\xia\\\\AppData\\\\Local\\\\Programs...",
-  "error": "Exit code 28\n确定。\r\n\r\n=== 复测跨机 ===\nFAILED: curl",
-  "timestamp": "2026-08-25T07:08:58.795Z",
+  "tool_input_preview": "{\"command\":\"sleep 12; rtk read \\\"/Users/xiamingxing/Workspace/.omo/_log/deadline-tracker.log\\\" 2>/dev/null; cat \\\"/Users/xiamingxing/Workspace/.omo/_log/deadline-tracker.err\\\" 2>/dev/null | head -3; e...",
+  "error": "Exit code 1\n/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '/Users/xiamingxing/Workspace/runtime/ssot-stable/deadline_tracker.py': [Errno 2] No such file or directory\n=== 心跳落盘 ===",
+  "timestamp": "2026-08-25T22:09:12.748Z",
   "retry_count": 1
 }
