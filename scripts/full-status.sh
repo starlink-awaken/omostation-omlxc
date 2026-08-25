@@ -122,6 +122,26 @@ heartbeat "omlxc daemon 探测"      "$HOME/.omlx/stats.json"                   
 heartbeat "pipeline-watchdog 5min"  "$HOME/.config/omlxc/watchdog.log"                  10
 heartbeat "gateway free_pool scan"  "$HOME/.aetherforge/state/free_pool_last_seen.json" 15
 
+# 2026-08-25 产出断言(复盘 §二): 心跳证明"机制在转"不证明"产出为真"。
+# mail-daemon 心跳新鲜 + 最近连续 3 轮 0任务0草稿 → LLM 认知层疑似失明
+# (同款症状: 总闸事故时连续 N 轮 20封0任务, 机制一切"正常")。
+MAILJ="$HOME/Workspace/.omo/state/mail-daemon.jsonl"
+if [ -s "$MAILJ" ]; then
+  zero_streak=$(tail -3 "$MAILJ" | python3 -c "
+import json,sys
+try:
+    rows=[json.loads(l) for l in sys.stdin if l.strip()]
+    print(sum(1 for r in rows if r.get('mails',0)>0 and r.get('tasks',0)==0 and r.get('drafts',0)==0))
+except Exception:
+    print(0)" 2>/dev/null || echo 0)
+  total_rounds=$(wc -l < "$MAILJ" | tr -d ' ')
+  if [ "${zero_streak:-0}" -ge 3 ]; then
+    printf "  ⚠️  %-28s 心跳在但连续%s轮 0任务0草稿 — LLM 认知层疑似失明\n" "mail-daemon 产出" "$zero_streak"
+  else
+    printf "  ✅ %-28s 最近轮次有产出 (累计 %s 轮)\n" "mail-daemon 产出" "$total_rounds"
+  fi
+fi
+
 echo ""
 echo "--- 磁盘 (模型卷) ---"
 df -h /Volumes/Model 2>/dev/null | tail -1 || echo "  (无法读取)"
