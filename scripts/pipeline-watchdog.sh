@@ -45,6 +45,25 @@ for _repo in "$HOME/Workspace/projects/omlxc" "$HOME/Workspace"; do
   fi
 done
 
+# --- 常驻任务运行时文件巡检 (2026-08-26, 协作协议条款 B 轻量版) ---
+# 8 条 cron 直指主 worktree 文件(分支漂移即断档, mail-daemon 8h 实锤)。
+# 全部固化副本 = 8 份同步负担(过度工程); 本段用 test -f 链在 5min 内
+# 抓文件消失 — 断档发现从"人工" 提到 "分钟级"。
+RUNTIME_FILES=(
+  "$HOME/Workspace/bin/gac/remediation-engine.py"
+  "$HOME/Workspace/bin/gac/anti-corrosion-check.py"
+  "$HOME/Workspace/bin/gac/unified-health-score.py"
+  "$HOME/Workspace/bin/ssot/north-star-weekly.py"
+  "$HOME/Workspace/bin/ssot/system-health-check.py"
+  "$HOME/Workspace/bin/ssot/mail_daemon.py"
+  "$HOME/Workspace/bin/ssot/journey-runner.py"
+)
+for _f in "${RUNTIME_FILES[@]}"; do
+  if [ ! -e "$_f" ]; then
+    log "[WARN] 常驻任务运行时文件消失: $_f — 分支漂移断档风险(参考 runtime/ssot-stable 固化模式)"
+  fi
+done
+
 # --- brew tailscaled (临时进程守护: 死了报警; 持久化方案待用户批准) ---
 if ! pgrep -f "tailscale.brew.sock" > /dev/null; then
   log "[ERROR] brew tailscaled 不在运行 — 远程节点链路已断"
