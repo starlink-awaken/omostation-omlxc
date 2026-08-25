@@ -205,3 +205,19 @@ B. 运维层: 保证 coding 常驻(内存窗口稳定后 warm-keep 自动维持;
 完整战役: llm_ask 46s None → 八层病根逐层根治 → daemon 生产升级
 → **UDS 本地直连全通**。今日 mail-daemon/gateway/一切 llm_ask 消费者
 自此可走本地直连(对照此前 LM Link 兜底绕行 mac-mini 11s+)。
+
+## 🏆 消费者链终验: 稳态 0.4s 本地直连 (2026-08-26 凌晨终章)
+
+追加修复: ⑨ gateway SSOT 透传字段(enable_thinking/kv_bits/
+chat_template_kwargs)兼容(354d4cd, 消费者链 422 终修)。
+
+**llm_ask 三连终验(model=qwen-3.8-27b, coding/embedding 双模型在内存)**:
+- 冷启动: 10.1s(含 registry discover ~7s, 单例进程一次性)
+- 稳态:   **0.44s / 0.36s** — UDS 本地直连实锤
+
+**完整价值曲线**: 46s None(病态) → 11s LM Link 兜底绕行(半愈)
+→ **0.4s 本地直连(痊愈)** — 约百倍提速。
+
+九层修复终账: ①refresh ②unix白名单 ③SSOT补名 ④UDS transport
+⑤base_url端点 ⑥OpenAI字段集 ⑦probe病历 ⑧版本契约上界 ⑨SSOT透传字段
+— 每层有提交/测试/实证/病历。daemon 生产版含全部九层(uv tools @354d4cd)。
