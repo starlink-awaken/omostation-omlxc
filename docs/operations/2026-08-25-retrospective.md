@@ -86,3 +86,16 @@
 | P1 | whisper 常驻验证(schtasks onlogon 重启后) | 下次登录 |
 | P2 | 产出断言制度(见 §二) | 治理 |
 | 时间窗 | full-status 周报(下一首份完整周) | 周一 |
+
+## 六、深夜追加: 运行时固化解耦 (第三类互踩事故的治本)
+
+**事故第三形态**: mail-daemon 断档 8h — 主 worktree 分支被并行 agent 切到
+不含 bin/ssot/ 的分支 → launchd 每 30min 空跑(No such file or directory)。
+与 checkout 拖回(仓库内容回退)、文件回写(编辑冲突)并列为今日三类互踩。
+
+**治本**: `runtime/ssot-stable/` 稳定副本(7 文件) + launchd plist 改指
+(备份在 .bak-20260825-runtime-stable) — 运行时与工作区解耦,
+同 aetherforge-final-ae3570f 部署思路。同步纪律见副本目录 README.md。
+
+**通用原则(候选治理条款)**: 一切 launchd/cron 常驻任务不得直接指向
+共享主 worktree 内的文件 — 必须经稳定副本或安装产物。
