@@ -139,3 +139,21 @@ briefing/草稿层, 进入 journey 流程目前靠人工启动(或有其他触�
 5. **--live 真草稿**: 留给用户确认后执行(安全边界 by design)
 
 **数字大脑 P0 五环节实测贯通**(感知→认知→起草→流程→汇报)。
+
+## ✅ 断链大扫除 + 毕业礼正确阴性 (2026-08-26)
+
+**用户点名的断链排查, 一并修**:
+- kairon 挪窝(projects/ → projects/knowledge/)致 **10 个 editable pth 断链**
+  — 批量 sed 修复, iris 等全系统复活
+- omo-debt 死环境: 溯源 ADR-0412(已归并入 omo, 非失踪) → uv tool 卸载
+- 全系统 editable 断链终检: **0 个 ✓**
+
+**毕业礼链路的三个隐藏 bug 连修**:
+1. iris 弃用警告污染 stdout → json.loads 炸(两处解析点剥离非 JSON 前缀)
+2. _has_real_data 启发式缺 admin-inbox 的 mails/has_task 字段 → 恒 degraded
+3. 修复后 LIVE 跑通: **degraded 消失 + has_task=false 如实阴性**
+   (真实邮箱无任务邮件 → 正确不产草稿 — 数字大脑如实运转的证明)
+- .eml 产出: 等真实任务邮件到达自然触发(生产邮箱, 不伪造数据)
+
+**遗留**: journey 系 B 分支 422(SSOTProviderAdapter 请求体字段 — 走兜底
+不影响功能, 第十层挂账); iris 已弃用应迁 cockpit(迁移债)。
