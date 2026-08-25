@@ -73,3 +73,19 @@ unix:// base_url(Missing credentials/非法URL)。需要 httpx UDS transport
   副本 vs 主仓 Phase6 版), 再看主仓版 refresh 为何 0.8s 空转。老王侧的
   unix:// 白名单(aetherforge 03eca4c)与 qwen-3.8-27b 入 SSOT(ecos 9b0cc62)
   两修复在两份代码里均已生效, 不受此影响。
+
+## ✅ UDS transport 交付闭环 (2026-08-25 深夜追加)
+
+**已交付**(aetherforge 23640d6, 主仓+final 运行副本均已推送):
+`OpenAIProvider._get_client/_get_async_client` 对 `unix://` base_url 分支:
+httpx UDS transport(uds=default_omlxc_socket()) + 虚拟 `http://omlxc/api/v1`。
+**验证双证**: UDS list_models 18 模型全通; chat 穿透到 daemon 路由裁决层
+(返回业务错误 E400 no eligible candidate — 传输层完整, 非传输问题)。
+
+**端到端出话的唯一剩余阻塞 — 内存, 非代码**:
+- daemon 判 coding/qwen-3.8-27b 全 placement unavailable, 根因是
+  warm-keep 的 SKIP-MEM 守卫: `coding 需要 ~24GB, 可用 21GB, 跳过`
+- 当前 MBP: 44% free + swap 14.6GB(阶段一目标 <10GB 未达终态)
+- 内存腾挪(辨认可卸模型+不破明早保活)是独立工作, 留内存治理窗口
+- **内存窗口打开后的验证一条命令**: `llm_ask(model='coding')` 经 UDS
+  直连应 <5s 出话(对照: 当前 LM Link 兜底绕行 11s+)
