@@ -122,3 +122,17 @@ SDK 完整请求体 → 422 E100(daemon 校验层挑剔 SDK 附加字段);
 warm-keep 在可用 ≥32GB 时自动温 coding → UDS 直连即刻可用。
 另: 422(SDK 字段兼容)是次要层, 若 daemon 校验层愿放宽(或 provider
 侧过滤附加字段)可顺带修 — 挂 omlxc daemon 侧小债。
+
+## ✅✅✅ 422 根治实证 (深夜终章, 7f2f149)
+
+**修复**: OpenAIChatBody 补 OpenAI 标准字段集(stop/top_p/n/双penalty/
+seed/user), str→tuple validator, 未知字段仍拒(防注入保留)。
+**三路 app 层实证**(TestClient 直打, injectable app 零后端副作用):
+- SDK 完整体(temperature+stop+top_p+penalties) → 503 E200(穿透校验, 达服务层) ✓
+- 裸 str stop → 503 E200 ✓
+- 未知字段 → 422 E100 仍拒 ✓
+**生效**: daemon 3.4.0 → repo HEAD 升级后(与 role 字段同账双修复)。
+
+**UDS 全链路修复总账(今日)**: unix://白名单 → UDS transport → base_url
+端点 → 422 字段集 — 四层全修, 每层有提交/测试/实证。剩余唯一: 409 容量
+(物理约束, warm-keep 自动窗口)。
