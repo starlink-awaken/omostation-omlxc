@@ -89,3 +89,24 @@ httpx UDS transport(uds=default_omlxc_socket()) + 虚拟 `http://omlxc/api/v1`�
 - 内存腾挪(辨认可卸模型+不破明早保活)是独立工作, 留内存治理窗口
 - **内存窗口打开后的验证一条命令**: `llm_ask(model='coding')` 经 UDS
   直连应 <5s 出话(对照: 当前 LM Link 兜底绕行 11s+)
+
+## ✅✅ UDS 端点修正 — 传输层完全打通 (深夜终版)
+
+**修正**(aetherforge 7245ecc): SDK base_url `http://omlxc/api/v1` →
+`http://omlxc/openai/v1` — 对齐 daemon 真实 chat 端点
+`/openai/v1/chat/completions`(omlxc_client.py:297 既有契约)。
+
+**验证链终态**: 404(路径错) → ReadTimeout(路径对, 请求穿透到推理管线,
+等待 24GB coding 冷加载, 内存 21GB<24GB) — 传输层+路径层 100% 正确。
+mail-daemon.err 同步实证: resolve 成功 + UDS 客户端构造 + 进入 generate。
+
+**端到端出话验证的一条命令**(内存窗口打开后, 如重启或卸载驻留后):
+```bash
+python3 -c "sys.path.insert(0,'/Users/xiamingxing/Workspace/bin/ssot'); \
+from _llm_helper import llm_ask; print(llm_ask('1+1=?', model='coding'))"
+```
+预期 <5s 出话(UDS 本地直连), 对照 LM Link 兜底绕行 11s+。
+
+**容量窗口开法**(明早或内存富余时): warm-keep 会在可用内存 ≥24+8GB 时
+自动温 coding(WATCH 目标在册), 无需人工干预 — 届时 mail-daemon 下一轮
+自动走本地直连。
