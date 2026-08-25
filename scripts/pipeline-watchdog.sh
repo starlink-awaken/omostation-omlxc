@@ -70,10 +70,14 @@ if ! pgrep -f "tailscale.brew.sock" > /dev/null; then
   log "[ERROR] brew tailscaled 不在运行 — 远程节点链路已断"
 fi
 
-# --- LM Studio：只监控记录，不自动重启 ---
-# LM Studio 有已知的 JIT 加载失控上下文问题(见 docs/operations/2026-08-22-*),
-# 自动重启解决不了根因，反而可能在同一个坑里循环重启，宁可如实报警。
-check_http "http://127.0.0.1:1234/v1/models" || log "[ERROR] LM Studio (MBP) 端口 1234 无响应"
+# --- LM Studio：只监控记录，不自动重启 (2026-08-26 用户卸载本机 LM Studio;
+#     改为存在才探测 — 消失静默跳过, 将来重装自适应, 不替用户做架构决策) ---
+# 历史注记: LM Studio 有已知的 JIT 加载失控上下文问题(见
+# docs/operations/2026-08-22-*), 自动重启解决不了根因; qwen 双加载事故
+# 根因之一也是它(JIT 副本无卸载机制, 见 2026-08-26 ops 记录)。
+if pgrep -x "LM Studio" > /dev/null 2>&1; then
+  check_http "http://127.0.0.1:1234/v1/models" || log "[ERROR] LM Studio (MBP) 端口 1234 无响应"
+fi
 
 # --- Ollama (自愈：2026-08-22 单次会话内观察到两次崩溃，均干净重启即恢复，
 #     无 LM Studio 那类失控加载风险) ---
