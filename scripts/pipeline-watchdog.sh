@@ -75,7 +75,10 @@ for _c in /opt/homebrew/bin/tailscale /usr/local/bin/tailscale "$HOME/.local/bin
   if [ -x "$_c" ] || command -v "$_c" >/dev/null 2>&1; then TS_CLI="$_c"; break; fi
 done
 if [ -n "$TS_CLI" ]; then
-  "$TS_CLI" status --json 2>/dev/null | python3 -c "
+  # 必须钉死 brew socket: 本机还有 GUI 版 Tailscale.app(macsys)在跑且 logged out,
+  # 不带 --socket 时 CLI 默认连 GUI 版的 IPN bus → Peer=null → 节点告警失明
+  # (2026-08-25 实锤: 双后端共存, brew 版才是承载 tailnet 的正主)
+  "$TS_CLI" --socket=/var/run/tailscale.brew.sock status --json 2>/dev/null | python3 -c "
 import json,subprocess,sys,time
 try:
     # "Peer": null 时 get 默认值不生效(key 存在但值为 null), 必须 or {} 兜底,

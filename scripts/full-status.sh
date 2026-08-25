@@ -76,7 +76,7 @@ done
 echo ""
 echo "--- Tailscale / 远程节点 ---"
 if pgrep -f "tailscale.brew.sock" > /dev/null 2>&1; then
-  /usr/local/bin/tailscale status 2>/dev/null | grep -E "mac-mini|y7000p" | while read -r line; do
+  /usr/local/bin/tailscale --socket=/var/run/tailscale.brew.sock status 2>/dev/null | grep -E "mac-mini|y7000p" | while read -r line; do
     echo "  $line"
   done
   # 远程常驻模型存活 (2026-08-22 起 gemma-4-e4b 常驻 mac-mini 分担轻负载)
