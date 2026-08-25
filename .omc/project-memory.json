@@ -30,7 +30,7 @@
   },
   "build": {
     "buildCommand": null,
-    "testCommand": "pytest",
+    "testCommand": "cd \"/Users/xiamingxing/Workspace/projects/omlxc\" && uv run pytest tests/unit/test_remote_resident_role.py -q 2>&1 | tail -2 && echo \"=== 全量回归 ===\" && uv run pytest -q 2>&1 | tail -3",
     "lintCommand": "ruff check",
     "devCommand": null,
     "scripts": {}
@@ -157,9 +157,27 @@
   },
   "hotPaths": [
     {
+      "path": "scripts/pipeline-watchdog.sh",
+      "accessCount": 6,
+      "lastAccessed": 1787639438259,
+      "type": "file"
+    },
+    {
+      "path": "scripts/remote-resident-maintain.py",
+      "accessCount": 5,
+      "lastAccessed": 1787630357792,
+      "type": "file"
+    },
+    {
       "path": "src/omlxc/daemon/composition.py",
       "accessCount": 4,
       "lastAccessed": 1787190756034,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-24-roadmap-compute-to-brain.md",
+      "accessCount": 4,
+      "lastAccessed": 1787638961692,
       "type": "file"
     },
     {
@@ -181,27 +199,21 @@
       "type": "file"
     },
     {
-      "path": "scripts/pipeline-watchdog.sh",
+      "path": "src/omlxc/config/schema.py",
       "accessCount": 3,
-      "lastAccessed": 1787622627007,
+      "lastAccessed": 1787627172602,
       "type": "file"
     },
     {
-      "path": "src/omlxc/config/schema.py",
-      "accessCount": 2,
-      "lastAccessed": 1787190712305,
+      "path": "tests/unit/test_remote_resident_role.py",
+      "accessCount": 3,
+      "lastAccessed": 1787627465619,
       "type": "file"
     },
     {
       "path": "scratch/benchmark_leaderboard.md",
       "accessCount": 2,
       "lastAccessed": 1787211682633,
-      "type": "file"
-    },
-    {
-      "path": "docs/operations/2026-08-24-roadmap-compute-to-brain.md",
-      "accessCount": 2,
-      "lastAccessed": 1787620421371,
       "type": "file"
     },
     {
@@ -214,6 +226,12 @@
       "path": "docs/operations/2026-08-23-performance-stability-scenario-summary.md",
       "accessCount": 2,
       "lastAccessed": 1787621097992,
+      "type": "file"
+    },
+    {
+      "path": "scripts/asr/README.md",
+      "accessCount": 2,
+      "lastAccessed": 1787641956533,
       "type": "file"
     },
     {
@@ -280,6 +298,24 @@
       "path": "docs/operations/2026-08-25-task-landscape-five-layers.md",
       "accessCount": 1,
       "lastAccessed": 1787622643745,
+      "type": "file"
+    },
+    {
+      "path": "scripts/full-status.sh",
+      "accessCount": 1,
+      "lastAccessed": 1787624007144,
+      "type": "file"
+    },
+    {
+      "path": "scripts/scenario-warm-keep.py",
+      "accessCount": 1,
+      "lastAccessed": 1787627621690,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-25-gateway-inprocess-dispatch-debug-notes.md",
+      "accessCount": 1,
+      "lastAccessed": 1787640688612,
       "type": "file"
     }
   ],
