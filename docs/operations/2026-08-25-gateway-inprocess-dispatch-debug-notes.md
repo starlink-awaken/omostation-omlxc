@@ -150,3 +150,22 @@ seed/user), str→tuple validator, 未知字段仍拒(防注入保留)。
 **UDS 全链路五层修复终账(全生效)**: unix://白名单 → UDS transport →
 base_url 端点 → OpenAI 字段集 → daemon 升级部署。
 剩余唯一: 409/ReadTimeout 容量(物理约束, warm-keep 内存窗口自动解)。
+
+## 🔬 第六层新病发现: available 判定矛盾 (2026-08-26 凌晨)
+
+**现场**(UDS 五层修复全通后的唯一剩余):
+- oMLX App 8000 直连 chat → **200 出话**(coding 在内存, 推理正常)
+- daemon UDS chat(最小体, 无 stop) → **409 insufficient_capacity**
+- daemon 视角: coding `loaded=True + fresh=True + available=False`
+  —— 探测新鲜+模型加载着, available 却判 False(内部矛盾判定)
+
+**已排除**: stop 参数(最小体同 409) / 模型未加载(直连出话) / 校验层
+(五层修复后穿透) / 探测过期(fresh=True)。
+
+**下一棒起点**: daemon 的 available 计算逻辑(planner/probe/catalog 中
+available 的赋值条件 — loaded+fresh 之外还有什么门槛)。对照数据:
+直连 200 vs daemon 409, 同一时刻同一模型。改动注意: 此判定是生产
+路由核心, 修复需谨慎+测试覆盖。
+
+**今晚战果**: coding 24GB 已温(内存窗口曾开), oMLX 重启清 swap
+24.5→19.6GB, warm-keep SKIP-MEM 临界差 0.6GB→过线成功一次。
