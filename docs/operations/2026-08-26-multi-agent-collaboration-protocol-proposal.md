@@ -43,11 +43,21 @@
 
 配套: 稳定副本同步纪律(变更里程碑手动 cp, 或 Makefile target)。
 
-### 条款 C: agent 身份标识(低成本, 立即可做)
+### 条款 C: agent 身份标识(低成本, 立即可做) — ✅ 已落地 (2026-08-25)
 
-并行 agent 以 `test<test@test>` 身份提交, 混入他人 staged 内容无从追溯。
-提案: 各 agent 会话固定 git identity(user.name 带 agent 标识, 如
-`laowang-agent` / `phase6-agent`), 事后审计可按身份回溯责任。
+**事故实录**: 全局 `~/.gitconfig` 的 `[user]` 段在 08-21 19:13 被改成
+`test/test@test`(疑似某 agent 会话或 gitbutler 误写)。主仓靠 local 配置
+顶住(漏网 95 commit), omlxc 无 local 配置全军覆没(108 commit 全 test)。
+
+**已落地修复**:
+1. 全局身份恢复为 `xiamingxing <234556587+starlink-awaken@users.noreply.github.com>`(主仓 local 为铁证)
+2. omlxc 仓补 local user 配置(与主仓同款, 双保险 — 全局再被改也顶得住)
+3. agent 提交姿势: 并行 agent 若需区分身份, 用 per-commit 标识
+   `git -c user.name="xxx-agent" -c user.email="agent@local" commit ...`,
+   不许改全局/仓库级 config
+
+**历史污染**: 已推远端的 test 身份 commit 不 rewrite(重武器, 违反
+submodule 纪律), 接受历史脏、保未来净。
 
 ## 四、裁决请求
 

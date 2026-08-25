@@ -46,8 +46,8 @@ for _repo in "$HOME/Workspace/projects/omlxc" "$HOME/Workspace"; do
 done
 
 # --- 常驻任务运行时文件巡检 (2026-08-26, 协作协议条款 B 轻量版) ---
-# 8 条 cron 直指主 worktree 文件(分支漂移即断档, mail-daemon 8h 实锤)。
-# 全部固化副本 = 8 份同步负担(过度工程); 本段用 test -f 链在 5min 内
+# 多条 cron 直指主 worktree 文件(分支漂移即断档, mail-daemon 8h 实锤)。
+# 全部固化副本 = N 份同步负担(过度工程); 本段用 test -f 链在 5min 内
 # 抓文件消失 — 断档发现从"人工" 提到 "分钟级"。
 RUNTIME_FILES=(
   "$HOME/Workspace/bin/gac/remediation-engine.py"
@@ -57,6 +57,7 @@ RUNTIME_FILES=(
   "$HOME/Workspace/bin/ssot/system-health-check.py"
   "$HOME/Workspace/bin/ssot/mail_daemon.py"
   "$HOME/Workspace/bin/ssot/journey-runner.py"
+  "$HOME/Workspace/projects/omlxc/scripts/weekly-report.py"
 )
 for _f in "${RUNTIME_FILES[@]}"; do
   if [ ! -e "$_f" ]; then

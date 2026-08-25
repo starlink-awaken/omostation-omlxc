@@ -115,13 +115,24 @@ def main() -> int:
         for name, vals in sorted(node_seen.items()):
             print(f"   {name}: {100*sum(vals)/len(vals):.0f}% ({sum(vals)}/{len(vals)} 快照)")
 
-    # 常驻稳定性(watchdog)
+    # 常驻稳定性(watchdog) — 7天/24h 双口径: 历史故障期会污染整周失败率
+    # (2026-08-25 实锤: bge-m3 404 故障期把 mac-mini 推到 70%, 当日实际已恢复)
     res = parse_resident_events(DAYS)
     if res:
-        print("🔁 remote_resident 稳定性(近7天):")
+        res24 = parse_resident_events(1)
+        print("🔁 remote_resident 稳定性(近7天 / 近24h):")
         for node, st in sorted(res.items()):
             total = st["ok"] + st["fail"]
-            print(f"   {node}: 补齐 {st['ok']} | 失败 {st['fail']} ({100*st['fail']/total:.0f}% 失败率)")
+            line = (f"   {node}: 补齐 {st['ok']} | 失败 {st['fail']}"
+                    f" ({100*st['fail']/total:.0f}% 失败率)")
+            st24 = res24.get(node)
+            if st24:
+                if st24["fail"] == 0:
+                    line += " | 今日: ✅ 无失败"
+                else:
+                    t24 = st24["ok"] + st24["fail"]
+                    line += f" | 今日: 失败 {st24['fail']}/{t24}"
+            print(line)
 
     print(f"\n   生成: weekly-report.py @ {datetime.now():%H:%M} | 数据源 status-history.log")
     return 0
