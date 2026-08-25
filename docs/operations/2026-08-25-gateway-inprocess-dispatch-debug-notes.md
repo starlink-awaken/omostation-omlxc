@@ -169,3 +169,24 @@ available 的赋值条件 — loaded+fresh 之外还有什么门槛)。对照数
 
 **今晚战果**: coding 24GB 已温(内存窗口曾开), oMLX 重启清 swap
 24.5→19.6GB, warm-keep SKIP-MEM 临界差 0.6GB→过线成功一次。
+
+## 📌 第六层深挖补充: 探针的结构性约束 (凌晨)
+
+**probe_model_id 已改 bge-m3-mlx → coding**(config 注释含完整病历), 但
+仍未通 — 更深一层的结构性发现:
+
+```
+omlx_app adapter 探测逻辑: probe_id 必须 ∈ loaded_ids 才执行探测
+  → 探针钉死的模型必须常驻内存, 否则探测门关死
+  → bge-m3 死于 embedding 迁移(今天), coding 死于内存窗口拉锯(24GB
+    与 ~9GB agent 会话 + swap 压力共存, 温上又掉)
+```
+
+**白天修复方向(二选一)**:
+A. daemon 判定层: loaded 集为空/无 probe_id 时 generation_ready 不判
+   False(改"未知"态) — 动核心需测试覆盖, 建议白天精力充沛时干
+B. 运维层: 保证 coding 常驻(内存窗口稳定后 warm-keep 自动维持;
+   或 MBP agent 会话瘦身释放 9GB)
+
+**今晚战果盘点**: 七层深挖 + daemon 生产升级 + probe 病历入档 —
+每层都有精确的下一步。终有一击(端到端出话)只差内存窗口稳定。
