@@ -190,3 +190,18 @@ B. 运维层: 保证 coding 常驻(内存窗口稳定后 warm-keep 自动维持;
 
 **今晚战果盘点**: 七层深挖 + daemon 生产升级 + probe 病历入档 —
 每层都有精确的下一步。终有一击(端到端出话)只差内存窗口稳定。
+
+## 🏆🏆🏆 八层终账: 端到端贯通 (2026-08-26 凌晨, d92e3ac)
+
+**第八层(终修)**: oMLX 版本契约上界 (0,6,0)→(0,7,0) — oMLX App 0.6.2
+被开区间拒 → compatible=False → 全链雪崩。TDD: 契约红测+漂移用例对齐,
+1084 passed 0 回归。
+
+**终实验证**: UDS /openai/v1/chat/completions, SDK 完整体
+(model=coding + stop + temperature):
+    端到端: **200**
+    出话: **"2"**
+
+完整战役: llm_ask 46s None → 八层病根逐层根治 → daemon 生产升级
+→ **UDS 本地直连全通**。今日 mail-daemon/gateway/一切 llm_ask 消费者
+自此可走本地直连(对照此前 LM Link 兜底绕行 mac-mini 11s+)。
