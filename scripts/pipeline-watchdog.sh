@@ -78,7 +78,9 @@ if [ -n "$TS_CLI" ]; then
   "$TS_CLI" status --json 2>/dev/null | python3 -c "
 import json,subprocess,sys,time
 try:
-    peers=json.load(sys.stdin).get('Peer',{})
+    # "Peer": null 时 get 默认值不生效(key 存在但值为 null), 必须 or {} 兜底,
+    # 否则 peers.values() 空指针崩掉整段节点告警 (2026-08-25 watchdog.log 实锤)
+    peers=json.load(sys.stdin).get('Peer') or {}
 except Exception:
     sys.exit(0)
 WATCH=('mac-mini','xia-y7000p')  # mac-mini=主力常驻节点(7x24), y7000p=弹性; 其余设备不盯
