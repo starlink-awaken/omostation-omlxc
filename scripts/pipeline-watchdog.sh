@@ -167,6 +167,28 @@ if [ -n "$zero_avail" ]; then
   log "[WARN] 以下模型所有 placement 均不可用: $zero_avail"
 fi
 
+# --- 探测健康断言 (2026-08-26): 版本契约拒/probe 门关死这类病在旧守护下
+#     静默数周(实测: oMLX 0.6.2 被上界拒 compatible=False, 无任何告警,
+#     全 placement 假死)。nodes diagnose 的 incompatible 计数连续 3 轮
+#     (15min) > 0 即 WARN — 防同类病复发。 ---
+INCOMPAT_N=$("$OMLXC" nodes diagnose mbp-m5-max-128g --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)['data']
+    print(sum(o.get('count',0) for o in d.get('outcomes',[]) if o.get('code')=='incompatible'))
+except Exception:
+    print(-1)" 2>/dev/null || echo -1)
+STREAK_F="$LOG_DIR/probe-incompat-streak"
+if [ "${INCOMPAT_N:--1}" -gt 0 ] 2>/dev/null; then
+  streak=$(( $(cat "$STREAK_F" 2>/dev/null || echo 0) + 1 ))
+  echo "$streak" > "$STREAK_F"
+  if [ "$streak" -ge 3 ]; then
+    log "[WARN] MBP backend 探测 incompatible 连续 ${streak} 轮 — 版本契约/probe 门疑似关死(参考 2026-08-25 接力笔记⑦⑧层病历)"
+  fi
+else
+  rm -f "$STREAK_F" 2>/dev/null
+fi
+
 # 日志裁剪，避免无限增长
 if [ -f "$LOG" ]; then
   tail -n 2000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
