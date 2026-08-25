@@ -25,6 +25,15 @@
 | 运行时固化 | runtime/ssot-stable 副本, plist 改指 | ✅ 已落地 |
 | 产出断言 | mail-daemon 连续 0 产出告警 | ✅ 已落地 |
 | 探测健康断言 | watchdog incompatible 连续 3 轮告警 | ✅ 已落地(630caa4) |
+| **worktree 隔离标准流程** | 共享区改动一律 `git worktree add` 隔离改+commit+PR, 禁止在共享主 worktree 直接拉锯 | ✅ 已落地(PR #2208 首次实战) |
+
+> worktree 流程 (2026-08-25 第三次互踩事故催生, 用户裁决):
+> 1. `git worktree add .claude/worktrees/<name> -b fix/<topic>`
+> 2. worktree 内改 + commit (并行 agent 物理隔离, 绝对安全)
+> 3. push + PR + merge (远端 main 正朔保全)
+> 4. 同步回主区磁盘(运行时生效) + 稳定副本 + 清 worktree
+> 事故数据: 当日 bin/ssot 三 py + spec + 7 卡被并行 agent 整体回冲
+> (staged 都被冲掉), 原地重打 2 轮后切 worktree 一次通过。
 
 ## 三、提案条款(待裁决)
 
