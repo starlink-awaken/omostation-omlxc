@@ -34,6 +34,17 @@ if ! check_http "http://127.0.0.1:8000/v1/models"; then
   fi
 fi
 
+# --- 共享 worktree detached HEAD 告警 (2026-08-25 二发事故催生) ---
+# 08-24 与 08-25 两起: 并行 agent/机制把共享主 worktree checkout 到旧
+# 提交(非 reset --hard, M1/M2/M3 防不住这条通道), 当日新增提交被绕过。
+# 检测成本一条命令; 复原手段: git checkout main (main 从未被移动, 零丢失)。
+for _repo in "$HOME/Workspace/projects/omlxc" "$HOME/Workspace"; do
+  _branch=$(git -C "$_repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ -n "$_branch" ] && [ "$_branch" = "HEAD" ]; then
+    log "[WARN] 共享worktree detached HEAD: $_repo — 并行机制可能已拖回旧提交, git checkout main 可复原"
+  fi
+done
+
 # --- brew tailscaled (临时进程守护: 死了报警; 持久化方案待用户批准) ---
 if ! pgrep -f "tailscale.brew.sock" > /dev/null; then
   log "[ERROR] brew tailscaled 不在运行 — 远程节点链路已断"
