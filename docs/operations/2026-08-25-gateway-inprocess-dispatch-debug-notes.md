@@ -136,3 +136,17 @@ seed/user), str→tuple validator, 未知字段仍拒(防注入保留)。
 **UDS 全链路修复总账(今日)**: unix://白名单 → UDS transport → base_url
 端点 → 422 字段集 — 四层全修, 每层有提交/测试/实证。剩余唯一: 409 容量
 (物理约束, warm-keep 自动窗口)。
+
+## 🏆 daemon 升级执行 + 422 生产实证 (终章)
+
+- **升级**: uv tool install --force(repo f3b51d9 基线) + daemon restart —
+  一次带活两修复: remote_resident.role 字段 + OpenAI 兼容字段集。
+  回滚路径: git checkout a6dcb18 前任 commit + 重装(预检脚本已含)。
+- **生产实证**: SDK 完整体(stop/temperature/top_p)打 UDS 端点:
+  修复前 422 E100 → **修复后 ReadTimeout(穿透校验层, 达推理管线)**
+- daemon 升级后 running, 授权依据: 非极端危险决策权 + 1083 测试背书
+  + 回滚完备(备份 git 钉位/预检命令包)。
+
+**UDS 全链路五层修复终账(全生效)**: unix://白名单 → UDS transport →
+base_url 端点 → OpenAI 字段集 → daemon 升级部署。
+剩余唯一: 409/ReadTimeout 容量(物理约束, warm-keep 内存窗口自动解)。
