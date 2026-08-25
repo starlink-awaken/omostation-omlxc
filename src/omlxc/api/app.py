@@ -158,6 +158,11 @@ class OpenAIChatBody(ApiModel):
     frequency_penalty: float = Field(default=0.0, ge=-2, le=2)
     seed: int | None = None
     user: str = Field(default="", max_length=256)
+    # 2026-08-26: gateway 从 SSOT request_defaults 转发的 MLX 原生调优参数
+    # (消费者链实测 422) — 兼容层显式接受, 推理按后端默认(透传留后续)。
+    enable_thinking: bool = False
+    kv_bits: int | None = Field(default=None, ge=1, le=16)
+    chat_template_kwargs: dict[str, bool] | None = None
     profile: RouteProfile = RouteProfile.INTERACTIVE
     thinking: bool = False
     reasoning: bool = False

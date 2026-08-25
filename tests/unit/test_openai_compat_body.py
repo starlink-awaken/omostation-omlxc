@@ -44,3 +44,10 @@ def test_unknown_field_still_rejected() -> None:
 
 def test_stop_tuple_or_str() -> None:
     assert OpenAIChatBody(**_minimal(), stop="END").stop == ("END",)
+
+
+def testmlx_passthrough_fields_accepted() -> None:
+    # gateway 从 SSOT request_defaults 转发的 MLX 原生参数(2026-08-26 消费者链422)
+    body = OpenAIChatBody(**_minimal(), enable_thinking=False, kv_bits=8,
+                          chat_template_kwargs={"enable_thinking": False})
+    assert body.kv_bits == 8
