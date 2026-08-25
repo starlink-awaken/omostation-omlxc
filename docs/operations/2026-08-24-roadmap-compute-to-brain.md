@@ -126,3 +126,16 @@ briefing/草稿层, 进入 journey 流程目前靠人工启动(或有其他触�
   当场补跑一轮续上今日数据
 - 管道全景: 每小时快照 → status-history.log → 周一 08:05 weekly-report.py
   自动出周报(placement/内存/节点/常驻四维)
+
+## ✅ 数字大脑端到端 Demo (2026-08-26 凌晨, dry-run 级)
+
+真实数据全链验证:
+1. **感知** ✓ mail-daemon 稳定副本轮转(19:44 轮, 20封)
+2. **认知** ✓ briefing 3 任务带 🚀 桥接行(真实邮件: JetBrains PR 讨论)
+3. **桥接命令 shell 合法性** ✓ 毒数据(单引号 subject + \r sender)经
+   shlex.quote 转义, bash 真跑成功(转义 bug 当场发现当场修: {!r} repr
+   → json.dumps+shlex.quote)
+4. **journey 状态机** ✓ dry-run 1 步达 terminal(exit 0)
+5. **--live 真草稿**: 留给用户确认后执行(安全边界 by design)
+
+**数字大脑 P0 五环节实测贯通**(感知→认知→起草→流程→汇报)。
