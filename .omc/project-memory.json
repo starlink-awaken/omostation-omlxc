@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1787126058232,
+  "lastScanned": 1787619767778,
   "projectRoot": "/Users/xiamingxing/Workspace/projects/omlxc",
   "techStack": {
     "languages": [
@@ -47,6 +47,7 @@
     "mainDirectories": [
       "bin",
       "docs",
+      "scripts",
       "src",
       "tests"
     ],
@@ -61,7 +62,7 @@
       "path": "bin",
       "purpose": "Executable scripts",
       "fileCount": 6,
-      "lastAccessed": 1787126058219,
+      "lastAccessed": 1787619767763,
       "keyFiles": [
         "omlx",
         "omlx-autostart",
@@ -74,18 +75,28 @@
       "path": "conf",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1787126058219,
+      "lastAccessed": 1787619767763,
       "keyFiles": [
         "agent-client.md",
         "launchd-proposal.md",
         "models.json"
       ]
     },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 3,
+      "lastAccessed": 1787619767764,
+      "keyFiles": [
+        "omlxc-3.4.0-py3-none-any.whl",
+        "omlxc-3.4.0.tar.gz"
+      ]
+    },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 3,
-      "lastAccessed": 1787126058219,
+      "lastAccessed": 1787619767765,
       "keyFiles": [
         "ARCHITECTURE-FABRIC.md",
         "local-openai-client-integration.md",
@@ -96,28 +107,47 @@
       "path": "models-active",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787126058220,
+      "lastAccessed": 1787619767765,
       "keyFiles": []
     },
     "scratch": {
       "path": "scratch",
       "purpose": null,
-      "fileCount": 0,
-      "lastAccessed": 1787126058220,
-      "keyFiles": []
+      "fileCount": 17,
+      "lastAccessed": 1787619767766,
+      "keyFiles": [
+        "2026-08-22-audit-leaderboard.md",
+        "benchmark_leaderboard.md",
+        "benchmark_qwen38.py",
+        "benchmark_qwen38_v3.py",
+        "deep_bench_qwen38.py"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 12,
+      "lastAccessed": 1787619767766,
+      "keyFiles": [
+        "deep-registration-audit.py",
+        "full-status.sh",
+        "health-check.sh",
+        "mac-mini-7x24-setup.sh",
+        "memory-sentinel.py"
+      ]
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1787126058220,
+      "lastAccessed": 1787619767766,
       "keyFiles": []
     },
     "tests": {
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 3,
-      "lastAccessed": 1787126058220,
+      "lastAccessed": 1787619767766,
       "keyFiles": [
         "README.md",
         "conftest.py",
@@ -139,6 +169,24 @@
       "type": "file"
     },
     {
+      "path": "README.md",
+      "accessCount": 3,
+      "lastAccessed": 1787620412034,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 3,
+      "lastAccessed": 1787620412085,
+      "type": "file"
+    },
+    {
+      "path": "scripts/pipeline-watchdog.sh",
+      "accessCount": 3,
+      "lastAccessed": 1787622627007,
+      "type": "file"
+    },
+    {
       "path": "src/omlxc/config/schema.py",
       "accessCount": 2,
       "lastAccessed": 1787190712305,
@@ -151,15 +199,21 @@
       "type": "file"
     },
     {
-      "path": "AGENTS.md",
-      "accessCount": 1,
-      "lastAccessed": 1787126139676,
+      "path": "docs/operations/2026-08-24-roadmap-compute-to-brain.md",
+      "accessCount": 2,
+      "lastAccessed": 1787620421371,
       "type": "file"
     },
     {
-      "path": "README.md",
-      "accessCount": 1,
-      "lastAccessed": 1787126140073,
+      "path": "docs/operations/2026-08-24-compute-fabric-four-fixes.md",
+      "accessCount": 2,
+      "lastAccessed": 1787621097933,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-23-performance-stability-scenario-summary.md",
+      "accessCount": 2,
+      "lastAccessed": 1787621097992,
       "type": "file"
     },
     {
@@ -202,6 +256,30 @@
       "path": "scratch/full_benchmark_raw.json",
       "accessCount": 1,
       "lastAccessed": 1787211308418,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-22-strategic-plan-four-pillars.md",
+      "accessCount": 1,
+      "lastAccessed": 1787619849682,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-22-architecture-review-and-roadmap.md",
+      "accessCount": 1,
+      "lastAccessed": 1787619850001,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-22-deep-audit-and-hardening.md",
+      "accessCount": 1,
+      "lastAccessed": 1787619850377,
+      "type": "file"
+    },
+    {
+      "path": "docs/operations/2026-08-25-task-landscape-five-layers.md",
+      "accessCount": 1,
+      "lastAccessed": 1787622643745,
       "type": "file"
     }
   ],
