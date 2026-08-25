@@ -163,6 +163,9 @@ class OpenAIChatBody(ApiModel):
     enable_thinking: bool = False
     kv_bits: int | None = Field(default=None, ge=1, le=16)
     chat_template_kwargs: dict[str, bool] | None = None
+    # 2026-08-26 第十层: SSOT request_defaults 的 thinking_budget(默认关
+    # thinking 的引擎级参数)同样经 extra_body 平铺到达 — 显式接受。
+    thinking_budget: int = Field(default=0, ge=0)
     profile: RouteProfile = RouteProfile.INTERACTIVE
     thinking: bool = False
     reasoning: bool = False
