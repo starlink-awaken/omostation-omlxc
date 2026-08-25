@@ -54,6 +54,19 @@
 - 进行中: #6(48h)、#10(whisper 差一步)、#11(WindowServer 差 sudo)
 - 今日提交: omlxc ~12 / aetherforge 3 / ecos 1, 测试 +12 全绿
 
+## ✅ #6 结案 (2026-08-25 提前执行)
+
+- **评审 PASS**: 150 次失败全是 qwen3.5:9b 下载期 502(08-24 00-17点, 预期噪音);
+  稳态期 成功20/失败2 (91%), 全部自愈; uptime 覆盖评审窗, 内存 49% free
+- **embedding 迁移完成**: MBP resident 除名(56→48GB) + mac-mini ollama
+  bge-m3 常驻(remote_resident, /api/embed 维持), embed 1024 维直连实测通过
+- **bf16 退役转正**: 08-24 的条件回滚条款解除
+- **附带排障**: mac-mini 双 ollama 实例(直连落 GUI 版)、httpx no_proxy
+  不认 CIDR 坑、tailscale 双后端(GUI 僵尸版清除)
+- **算力底座: 宣告完工** 🎉 剩余: #10(whisper 差用户本地跑一次)、#11(差 sudo)
+- 治理新债: 路由评分不感知 loaded(本地 JIT 兜底保留); daemon 3.4.0 升级
+  后启用 config 侧 role 字段; mac-mini ollama 单实例统一(用户裁决)
+
 ## ⚠️ 事故记录(20:3x): 共享 worktree 被并行机制拖回旧提交
 
 - 现象: full-status/usage-stats/scenario-warm-keep 三个当日脚本在磁盘上
