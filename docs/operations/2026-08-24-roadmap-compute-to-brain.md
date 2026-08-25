@@ -67,6 +67,22 @@
 - 治理新债: 路由评分不感知 loaded(本地 JIT 兜底保留); daemon 3.4.0 升级
   后启用 config 侧 role 字段; mac-mini ollama 单实例统一(用户裁决)
 
+## ✅ 阶段一全清 + 阶段二启动 (2026-08-25 午)
+
+- **#10 whisper 完成本地验证**(老王 SSH 远程代跑): 脚本落 y7000p
+  `C:\Users\xia\asr_test.py`, SAPI 合成语音 → faster-whisper tiny int8
+  **CPU 2.4s 转写完美**("Hello world, this is a whisper test on the Y7000P.")。
+  管线闭环 ✅; GPU 模式差一债: cudnn 9.24 `cudnnGetLibConfig` 符号加载
+  失败(ctranslate2 4.6.0 + nvidia-cudnn-cu12 9.24 组合问题, 待版本对齐)。
+  下一步: HTTP 服务封装(roadmap 既定)
+- **#11 销账**: mac-mini `pmset -g` 显示 displaysleep 已 = 5(目标态已达成,
+  无需 sudo)
+- **阶段二·mail-daemon 路由病修复**: 邮件感知引擎(读邮件→LLM分类→任务
+  提取→日报→草稿, 30min 周期)此前 auto-route 落 mythos-fast(本地 oMLX 只有
+  mythos, 无 -fast)→ 每轮 LM Link 兜底。修复: `_llm_helper.llm_ask` 加
+  显式 model 参数 + mail_agent 三处调用指定 qwen-3.8-27b(本地稳定主力,
+  真实流量 91%)。gateway complexity_chains 低档链头配置病挂账 aetherforge 侧
+
 ## ⚠️ 事故记录(20:3x): 共享 worktree 被并行机制拖回旧提交
 
 - 现象: full-status/usage-stats/scenario-warm-keep 三个当日脚本在磁盘上
