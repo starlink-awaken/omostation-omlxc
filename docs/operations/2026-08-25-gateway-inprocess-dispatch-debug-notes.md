@@ -221,3 +221,21 @@ chat_template_kwargs)兼容(354d4cd, 消费者链 422 终修)。
 九层修复终账: ①refresh ②unix白名单 ③SSOT补名 ④UDS transport
 ⑤base_url端点 ⑥OpenAI字段集 ⑦probe病历 ⑧版本契约上界 ⑨SSOT透传字段
 — 每层有提交/测试/实证/病历。daemon 生产版含全部九层(uv tools @354d4cd)。
+
+## 🏆 第十层终修: thinking_budget (5c26c22, 2026-08-26)
+
+SSOT request_defaults 的 thinking_budget(默认关 thinking)经 gateway
+extra_body 平铺 → daemon 不认 → **B 分支(SSOTProviderAdapter 路径,
+journey/mail 系)恒 422 落兜底**。与 enable_thinking/kv_bits/
+chat_template_kwargs 同处置(显式接受)。
+
+**终验**: 422 消失(B 分支穿透校验层) ✓; 兜底残留为模型加载态(运行态,
+非校验问题)。
+
+## 📜 十层终账(2026-08-25/26 完整战役)
+
+①refresh ②unix白名单 ③SSOT补名 ④UDS transport ⑤base_url端点
+⑥OpenAI字段集 ⑦probe病历 ⑧版本契约上界 ⑨SSOT透传三件套
+⑩thinking_budget — **十层全修**, daemon 生产版含全部(5c26c22),
+每层有提交/测试/实证/病历。附加战果: 断链大扫除(10 pth+1死环境)、
+运行时固化、五道防线、端到端 Demo、正确阴性毕业礼。
