@@ -125,9 +125,19 @@ def maintain_ollama_entry(entry: dict[str, object], base_url: str) -> None:
     node_id = entry["node_id"]
     model_id = str(entry["backend_model_id"])
     keep_alive_seconds = entry.get("keep_alive_seconds") or 3600
+    # 2026-08-25: embedding 模型(bge-m3 等)不支持 /api/generate, 必须打
+    # /api/embed 维持 keep_alive。daemon 3.4.0 schema 无 role 字段, config 侧
+    # 暂以名单过渡; repo schema 已加 Literal["chat","embedding"], daemon 升级后
+    # 由 entry["role"] 接管。
+    embedding_models = {"bge-m3:latest"}
+    role = str(entry.get("role") or ("embedding" if model_id in embedding_models else "chat"))
 
     try:
-        r = httpx.get(f"{base_url}/api/ps", timeout=HTTP_TIMEOUT)
+        # trust_env=False: tailnet IP(100.x) 永不走代理 — httpx 的 no_proxy
+        # 不支持 CIDR 表示法(NO_PROXY 里 100.64.0.0/10 匹配不上), 带 shell 代理
+        # 手动跑时请求会被塞给 ClashX 返回 404 (2026-08-25 实锤, 同 safe_audit
+        # 8/22 清代理同族坑)
+        r = httpx.get(f"{base_url}/api/ps", timeout=HTTP_TIMEOUT, trust_env=False)
         loaded = r.status_code == 200 and any(
             m.get("name") == model_id for m in r.json().get("models", [])
         )
@@ -137,12 +147,16 @@ def maintain_ollama_entry(entry: dict[str, object], base_url: str) -> None:
     if loaded:
         return
 
+    if role == "embedding":
+        url, payload = f"{base_url}/api/embed", {
+            "model": model_id, "input": "hi", "keep_alive": f"{keep_alive_seconds}s",
+        }
+    else:
+        url, payload = f"{base_url}/api/generate", {
+            "model": model_id, "prompt": "", "keep_alive": f"{keep_alive_seconds}s",
+        }
     try:
-        r = httpx.post(
-            f"{base_url}/api/generate",
-            json={"model": model_id, "prompt": "", "keep_alive": f"{keep_alive_seconds}s"},
-            timeout=HTTP_TIMEOUT * 2,
-        )
+        r = httpx.post(url, json=payload, timeout=HTTP_TIMEOUT * 2, trust_env=False)
     except Exception:
         log(f"[WARN] remote_resident(ollama) 加载超时: {node_id}/{model_id}")
         return

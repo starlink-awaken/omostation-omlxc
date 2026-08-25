@@ -229,6 +229,9 @@ class RemoteResidentConfig(ConfigModel):
     kind: BackendKind
     backend_model_id: str = Field(min_length=1)
     port: int = Field(ge=1, le=65535)
+    # 2026-08-25: embedding 模型(bge-m3 等)的常驻维持必须打 /api/embed 而非
+    # /api/generate — maintain 脚本按此分流(与 warm-keep 的 role 同语义)。
+    role: Literal["chat", "embedding"] = "chat"
     keep_alive_seconds: int | None = Field(default=None, gt=0)
     lms_arguments: tuple[str, ...] = ()
     ssh: bool = False

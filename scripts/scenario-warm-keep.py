@@ -44,7 +44,9 @@ WARM_TARGETS = [
     # 角色模型打 /v1/chat/completions 会 400 "not an LLM/chat model")。
     # 2026-08-24 减配: vision(6GB) 移出保活 — 真实使用统计(9天391次真实
     # 请求)中 vision 全是探测流量(avg_compl=1.2), 常驻纯属浪费, 按需 JIT 即可。
-    ("embedding", "embedding 场景默认模型(RAG 常用), resident 复核", 8.0, "embedding", BASE_URL),
+    # 2026-08-25 #6 定案: embedding(8GB) 迁 mac-mini ollama bge-m3 常驻
+    # (remote_resident role=embedding 维护), MBP 常驻 56→48GB; bf16 退役
+    # 转正(mac-mini 48h 评审 PASS, 稳态补齐成功率 91%)。
     ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat", BASE_URL),
     ("qwen-3.8-27b", "chat 场景默认模型(真实流量91%走它), 已验证响应正常", 24.0, "chat", BASE_URL),
     # 2026-08-24 职责转移: mythos 的 LM 兜底已由 mac-mini 常驻(4.78GB 量化版,
