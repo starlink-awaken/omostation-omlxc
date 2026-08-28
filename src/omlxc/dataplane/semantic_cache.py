@@ -13,6 +13,7 @@ import enum
 import hashlib
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 
@@ -97,6 +98,9 @@ def warm_system_prefixes(
         total_tokens_saved += tokens
         warmed_names.append(name)
 
+    # Save cache stats for A2 axis
+    save_cache_stats(registry)
+    
     return {
         "model_id": model_id,
         "warmed_count": len(warmed_names),
@@ -191,3 +195,34 @@ class SemanticCacheRegistry:
             "total_queries": total_queries,
             "hit_rate": round(hit_rate, 4),
         }
+
+
+# Persistence for cache statistics
+_CACHE_STATS_PATH = Path.home() / ".omlxc" / "cache_stats.json"
+
+def save_cache_stats(registry: "SemanticCacheRegistry") -> None:
+    """Save cache statistics to disk for A2 axis."""
+    import json
+    import sys
+    print(f"DEBUG: save_cache_stats called, registry type: {type(registry)}", file=sys.stderr)
+    print(f"DEBUG: _CACHE_STATS_PATH = {_CACHE_STATS_PATH}", file=sys.stderr)
+    try:
+        _CACHE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        stats = {
+            "l1_hits": registry._l1_hits,
+            "l2_hits": registry._l2_hits,
+            "misses": registry._misses,
+            "total_entries": len(registry._entries),
+            "saved_at": time.time(),
+        }
+        _CACHE_STATS_PATH.write_text(json.dumps(stats, indent=2))
+    except Exception as e:
+        import sys
+        print(f"DEBUG: Exception in save_cache_stats: {e}", file=sys.stderr)
+
+def load_cache_stats() -> dict:
+    """Load cache statistics from disk."""
+    try:
+        return json.loads(_CACHE_STATS_PATH.read_text())
+    except Exception:
+        return {"l1_hits": 0, "l2_hits": 0, "misses": 0, "total_entries": 0}
