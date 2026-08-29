@@ -3,6 +3,15 @@ from .affinity import AffinityConfig, SessionAffinityRegistry, calculate_prefix_
 from .benchmark import BenchmarkRunner
 from .capacity import CapacityCoordinator
 from .circuit_breaker import CircuitBreaker, CircuitBreakerRegistry
+from .cluster_coordinator import (
+    ClusterNodeInfo,
+    MultiNodeClusterCoordinator,
+    NodeRole,
+    NodeStatus,
+    PipelineExecutionReceipt,
+    PipelineStage,
+    RoutingResult,
+)
 from .cluster_partition import ClusterNodeRole, HeterogeneousClusterRouter, NodePlacementDecision
 from .concurrency import ConcurrencyTracker
 from .context_compressor import ContextOptimizationResult, ContextOptimizer
@@ -61,6 +70,7 @@ __all__ = [
     "ChatExecution",
     "CircuitBreaker",
     "CircuitBreakerRegistry",
+    "ClusterNodeInfo",
     "ClusterNodeRole",
     "CompactionResult",
     "ComplexityTier",
@@ -81,10 +91,15 @@ __all__ = [
     "HierarchicalResolutionPlan",
     "KVQuantPrecision",
     "ModelArchitectureMeta",
+    "MultiNodeClusterCoordinator",
     "NodeEnvironmentalState",
     "NodePlacementDecision",
+    "NodeRole",
+    "NodeStatus",
     "PagedKVMemoryManager",
     "PhysicalBlock",
+    "PipelineExecutionReceipt",
+    "PipelineStage",
     "PowerProfileGovernor",
     "PowerScalingProfile",
     "PowerSource",
@@ -99,6 +114,7 @@ __all__ = [
     "RerankRequest",
     "RerankResult",
     "RouteTelemetryRecorder",
+    "RoutingResult",
     "SemanticCacheEntry",
     "SemanticCacheRegistry",
     "SequenceBlockTable",
