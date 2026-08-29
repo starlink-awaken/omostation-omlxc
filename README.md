@@ -1,6 +1,6 @@
 # omlxc
 
-`omlxc` is a private local compute hub. Version `3.6.0` (ADR-0433) provides a persistent
+`omlxc` is a private local compute hub. Version `3.4.0` (ADR-0433) provides a persistent
 `omlxcd` control/data plane, typed Unix-socket client, scriptable Typer CLI,
 keyboard-first Textual cockpit, DFlash 2 block-diffusion speculative decoding (70+ tok/s),
 Radix Tree dynamic prefix caching, Paged KV memory block allocation, and 75% tiered VRAM headroom admission.
