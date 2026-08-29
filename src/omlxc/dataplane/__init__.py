@@ -16,10 +16,25 @@ from .cluster_partition import ClusterNodeRole, HeterogeneousClusterRouter, Node
 from .concurrency import ConcurrencyTracker
 from .context_compressor import ContextOptimizationResult, ContextOptimizer
 from .dflash_backend import DFlashBackendManager, DFlashConfig
+from .distributed_kv_pool import (
+    DistributedKVBlock,
+    DistributedKVPoolManager,
+    DistributedKVSwarmStatus,
+    KVStorageTier,
+)
+from .entropy_speculator import (
+    EntropyAdaptiveSpeculator,
+    SpeculativeTreeNode,
+    SpeculativeTreeResult,
+)
 from .hierarchical_cache import (
     CacheResolutionTier,
     HierarchicalCacheCoordinator,
     HierarchicalResolutionPlan,
+)
+from .metal_fused_attention import (
+    MetalFusedAttentionEngine,
+    MetalTileExecutionProfile,
 )
 from .models import (
     AdapterBinding,
@@ -36,11 +51,25 @@ from .models import (
 from .orchestrator import DataPlaneOrchestrator
 from .paged_kv import PagedKVMemoryManager, PhysicalBlock, SequenceBlockTable
 from .power_profile import PowerProfileGovernor, PowerScalingProfile
+from .predictive_warmup import (
+    PredictiveWarmupEngine,
+    PredictiveWarmupReceipt,
+)
 from .prefix_snapshot import StaticPrefixSnapshotManager
 from .priority_queue import PriorityVRAMScheduler, QueuedInferenceRequest, TaskPriority
 from .radix_cache import PrefixMatchResult, RadixPrefixCache, RadixTreeNode
 from .registry import AdapterRegistry
 from .semantic_cache import CacheTier, SemanticCacheEntry, SemanticCacheRegistry
+from .semantic_quantizer import (
+    SemanticKVQuantizer,
+    SemanticQuantizationPlan,
+    SemanticTokenCategory,
+)
+from .streaming_mesh import (
+    StreamChunk,
+    StreamingMeshPipeline,
+    StreamingPipelineReceipt,
+)
 from .telemetry import BoundRouteTelemetry, RouteTelemetryRecorder, TelemetrySink
 from .thermal import NodeEnvironmentalState, PowerSource, ThermalGuard, ThermalPressureLevel
 from .triage import ComplexityTier, TriageClassifier, TriageResult
@@ -82,7 +111,11 @@ __all__ = [
     "DFlashBackendManager",
     "DFlashConfig",
     "DataPlaneOrchestrator",
+    "DistributedKVBlock",
+    "DistributedKVPoolManager",
+    "DistributedKVSwarmStatus",
     "EmbeddingExecution",
+    "EntropyAdaptiveSpeculator",
     "ExecutionError",
     "ExecutionErrorCode",
     "HeadroomAdmissionResult",
@@ -90,6 +123,9 @@ __all__ = [
     "HierarchicalCacheCoordinator",
     "HierarchicalResolutionPlan",
     "KVQuantPrecision",
+    "KVStorageTier",
+    "MetalFusedAttentionEngine",
+    "MetalTileExecutionProfile",
     "ModelArchitectureMeta",
     "MultiNodeClusterCoordinator",
     "NodeEnvironmentalState",
@@ -103,6 +139,8 @@ __all__ = [
     "PowerProfileGovernor",
     "PowerScalingProfile",
     "PowerSource",
+    "PredictiveWarmupEngine",
+    "PredictiveWarmupReceipt",
     "PrefixMatchResult",
     "PriorityVRAMScheduler",
     "QueuedInferenceRequest",
@@ -117,9 +155,17 @@ __all__ = [
     "RoutingResult",
     "SemanticCacheEntry",
     "SemanticCacheRegistry",
+    "SemanticKVQuantizer",
+    "SemanticQuantizationPlan",
+    "SemanticTokenCategory",
     "SequenceBlockTable",
     "SessionAffinityRegistry",
+    "SpeculativeTreeNode",
+    "SpeculativeTreeResult",
     "StaticPrefixSnapshotManager",
+    "StreamChunk",
+    "StreamingMeshPipeline",
+    "StreamingPipelineReceipt",
     "TaskPriority",
     "TelemetrySink",
     "ThermalGuard",

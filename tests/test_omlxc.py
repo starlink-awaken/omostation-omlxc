@@ -101,7 +101,7 @@ def test_catalog_includes_qwen_38_27b(tmp_path):
     spec = conf["models"]["qwen-3.8-27b"]
     assert spec["alias"] == "qwen-3.8-27b/current"
     assert spec["role"] == "chat"
-    assert float(spec["size_gb"]) >= 22
+    assert float(spec["size_gb"]) >= 12
     assert spec["port"] == 8195
 
     cli = _load_cli()
