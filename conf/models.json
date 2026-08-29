@@ -302,10 +302,14 @@
       "engine": "mlx_embeddings",
       "role": "embedding",
       "reasoning": false,
+      "node_affinity": "mac-mini-m4-24g",
       "params": {
-        "max_tokens": 2048
+        "max_tokens": 2048,
+        "batch_size": 16,
+        "batch_delay_ms": 2.5,
+        "enable_jit": true
       },
-      "note": "bge-m3 备用检索 embedding",
+      "note": "bge-m3 检索向量化 (Mac mini 24H 常驻管道, batch_size=16)",
       "requires_pip": "mlx-embeddings",
       "size_gb": 1
     },
@@ -316,10 +320,14 @@
       "engine": "mlx_embeddings",
       "role": "chat",
       "reasoning": false,
+      "node_affinity": "mac-mini-m4-24g",
       "params": {
-        "max_tokens": 2048
+        "max_tokens": 2048,
+        "batch_size": 16,
+        "batch_delay_ms": 2.5,
+        "enable_jit": true
       },
-      "note": "omlx link 自动接入",
+      "note": "BAAI BGE Reranker v2 (Mac mini 24H 常驻重排管道)",
       "requires_pip": "mlx-embeddings",
       "size_gb": 3
     },
@@ -404,23 +412,48 @@
       "size_gb": 28
     },
     "qwen-3.8-27b": {
-      "category": "coding",
+      "category": "chat",
       "alias": "qwen-3.8-27b/current",
       "port": 8195,
       "engine": "mlx_lm",
       "role": "chat",
       "reasoning": false,
+      "enable_mtp": true,
+      "quantization": "4bit",
       "params": {
         "temp": 0.2,
         "top_p": 0.9,
-        "kv_bits": 8,
-        "max_tokens": 2048,
+        "kv_bits": 4,
+        "kv_group_size": 64,
+        "max_tokens": 4096,
+        "enable_prompt_cache": true,
+        "snapshot_path": "/Users/xiamingxing/omlx/cache/snapshots/qwen27b_prefix.kv",
         "chat_template_args": {
           "enable_thinking": false
         }
       },
-      "note": "Qwen3.8-27B MLX 6bit 通用对话（约 22GB，含视觉）",
-      "size_gb": 22
+      "note": "Qwen3.8-27B 4-bit + MTP 自投机加速与 0ms TTFT 静态前缀快照版（约 13.5GB）",
+      "size_gb": 13.5
+    },
+    "qwen-3.8-27b-dflash": {
+      "category": "chat",
+      "alias": "qwen-3.8-27b-dflash/current",
+      "port": 8196,
+      "engine": "llama_server_dflash",
+      "role": "chat",
+      "reasoning": false,
+      "enable_dflash2": true,
+      "params": {
+        "spec_type": "draft-dflash",
+        "spec_draft_n_max": 7,
+        "cache_type_k": "q8_0",
+        "cache_type_v": "q8_0",
+        "context_limit": 131072,
+        "target_model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+        "draft_model": "Qwen3.8-27B-DFlash2-Q8_0.gguf"
+      },
+      "note": "Qwen3.8-27B + DFlash 2 块扩散投机解码 70 tok/s 极速版 (18.5GB)",
+      "size_gb": 18.5
     }
   },
   "cluster": {

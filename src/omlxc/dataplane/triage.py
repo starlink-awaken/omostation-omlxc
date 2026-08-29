@@ -169,3 +169,14 @@ class TriageClassifier:
             reason="standard daily dialogue / balanced completion task",
             confidence=0.75,
         )
+
+
+def resolve_tier_target_model(tier: ComplexityTier, default_fast: str = "coding-fast", default_deep: str = "qwen-3.8-27b") -> str:
+    """
+    Resolves ComplexityTier to physical model identifier.
+    FAST -> 9B high throughput (45+ tok/s)
+    STANDARD/REASONING -> Qwen 27B (MTP accelerated)
+    """
+    if tier == ComplexityTier.FAST:
+        return default_fast
+    return default_deep

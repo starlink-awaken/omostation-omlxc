@@ -8,7 +8,8 @@ Calculates dynamic key-value cache memory expansion for long-context requests
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from enum import Enum
+from typing import Any, Final
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +52,8 @@ DEFAULT_ARCH_PROFILES: Final[dict[str, ModelArchitectureMeta]] = {
     "qwen-72b": ModelArchitectureMeta("qwen-72b", 80, 8, 128, 2, 42000.0),
     "deepseek-v3": ModelArchitectureMeta("deepseek-v3", 61, 8, 128, 2, 38000.0),
     # 27B~35B class models
-    "qwen-3.8-27b": ModelArchitectureMeta("qwen-3.8-27b", 64, 8, 128, 2, 17500.0),
+    "qwen-3.8-27b": ModelArchitectureMeta("qwen-3.8-27b", 64, 8, 128, 2, 13500.0),
+    "qwen-3.8-27b-dflash": ModelArchitectureMeta("qwen-3.8-27b-dflash", 64, 8, 128, 2, 18500.0),
     "coding": ModelArchitectureMeta("coding", 64, 8, 128, 2, 17500.0),
     # 9B~14B class models
     "qwen-3.5-9b": ModelArchitectureMeta("qwen-3.5-9b", 32, 4, 128, 2, 6200.0),
@@ -60,6 +62,141 @@ DEFAULT_ARCH_PROFILES: Final[dict[str, ModelArchitectureMeta]] = {
     "gemma-4b": ModelArchitectureMeta("gemma-4b", 26, 4, 256, 2, 2800.0),
     "gemma-2b": ModelArchitectureMeta("gemma-2b", 18, 1, 256, 2, 1600.0),
 }
+
+
+def reclaim_metal_memory_pool() -> dict[str, Any]:
+    """
+    Forcefully reclaims Metal cache and invokes garbage collection post-inference.
+    Prevents long-running VRAM memory leaks and fragmentation.
+    """
+    import gc
+    reclaimed_stats = {"gc_collected": 0, "metal_cleared": False}
+    try:
+        # If mlx is available in python environment
+        import mlx.core as mx
+        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
+            mx.metal.clear_cache()
+            reclaimed_stats["metal_cleared"] = True
+    except Exception:
+        pass
+    reclaimed_stats["gc_collected"] = gc.collect()
+    return reclaimed_stats
+
+
+class VRAMPressureTier(str, Enum):
+    GREEN = "green"    # < 70%: Fully safe, background indexing allowed
+    YELLOW = "yellow"  # 70% ~ 75%: Soft threshold, defer P2 background tasks
+    ORANGE = "orange"  # 75% ~ 82%: Compaction recommended, P1 throttled
+    RED = "red"        # >= 82%: Hard ceiling, admission rejected to prevent swap storm
+
+
+@dataclass(frozen=True, slots=True)
+class TieredHeadroomResult:
+    admitted: bool
+    pressure_tier: VRAMPressureTier
+    estimated_kv_mb: float
+    total_projected_mb: float
+    safe_ceiling_mb: float
+    system_reserved_mb: float
+    reason: str
+    compaction_advised: bool
+    max_safe_tokens: int
+    recommended_compaction_ratio: float
+
+
+def enforce_tiered_headroom_admission(
+    model_id: str,
+    requested_tokens: int,
+    current_used_vram_mb: float,
+    total_node_vram_mb: float = 131072.0,  # 128GB default for MBP M5 Max
+    normal_safe_ratio: float = 0.75,       # 75% (~96GB) balanced allocation
+    soft_warning_ratio: float = 0.70,      # 70% (~89.6GB) soft compaction warning
+    emergency_hard_ratio: float = 0.82,    # 82% (~107.5GB) emergency limit
+) -> TieredHeadroomResult:
+    """
+    Tiered dynamic VRAM admission governor.
+    Balances maximum hardware utilization while reserving 25GB~32GB dedicated headroom
+    for macOS, Xcode, browsers, and desktop responsiveness.
+    """
+    meta = DEFAULT_ARCH_PROFILES.get(model_id)
+    if not meta:
+        meta = ModelArchitectureMeta(model_id=model_id, num_layers=32, num_kv_heads=4, head_dim=128, bytes_per_elem=1)
+
+    projected_kv_mb = (meta.bytes_per_token * requested_tokens) / (1024.0 * 1024.0)
+    total_projected_mb = current_used_vram_mb + projected_kv_mb
+
+    soft_mb = total_node_vram_mb * soft_warning_ratio
+    safe_mb = total_node_vram_mb * normal_safe_ratio
+    hard_mb = total_node_vram_mb * emergency_hard_ratio
+    reserved_mb = total_node_vram_mb - total_projected_mb
+
+    # Determine Pressure Tier
+    if total_projected_mb < soft_mb:
+        tier = VRAMPressureTier.GREEN
+    elif total_projected_mb < safe_mb:
+        tier = VRAMPressureTier.YELLOW
+    elif total_projected_mb < hard_mb:
+        tier = VRAMPressureTier.ORANGE
+    else:
+        tier = VRAMPressureTier.RED
+
+    if tier == VRAMPressureTier.RED:
+        safe_bytes = max(0.0, (safe_mb - current_used_vram_mb) * 1024.0 * 1024.0)
+        safe_tokens = int(safe_bytes / meta.bytes_per_token) if meta.bytes_per_token > 0 else 0
+        return TieredHeadroomResult(
+            admitted=False,
+            pressure_tier=tier,
+            estimated_kv_mb=projected_kv_mb,
+            total_projected_mb=total_projected_mb,
+            safe_ceiling_mb=safe_mb,
+            system_reserved_mb=reserved_mb,
+            reason=(
+                f"Emergency limit reached: {total_projected_mb:.1f} MB exceeds {emergency_hard_ratio*100:.0f}% "
+                f"ceiling ({hard_mb:.1f} MB). OS Swap protection active."
+            ),
+            compaction_advised=True,
+            max_safe_tokens=max(0, safe_tokens),
+            recommended_compaction_ratio=round(max(0.0, 1.0 - (safe_tokens / max(requested_tokens, 1))), 4),
+        )
+
+    compaction_advised = tier in (VRAMPressureTier.YELLOW, VRAMPressureTier.ORANGE)
+    return TieredHeadroomResult(
+        admitted=True,
+        pressure_tier=tier,
+        estimated_kv_mb=projected_kv_mb,
+        total_projected_mb=total_projected_mb,
+        safe_ceiling_mb=safe_mb,
+        system_reserved_mb=reserved_mb,
+        reason=f"Admitted ({tier.value.upper()}): {total_projected_mb:.1f} MB <= {normal_safe_ratio*100:.0f}% budget ({safe_mb:.1f} MB)",
+        compaction_advised=compaction_advised,
+        max_safe_tokens=requested_tokens,
+        recommended_compaction_ratio=0.15 if tier == VRAMPressureTier.ORANGE else 0.0,
+    )
+
+
+def enforce_strict_headroom_admission(
+    model_id: str,
+    requested_tokens: int,
+    current_used_vram_mb: float,
+    max_hard_quota_mb: float = 98304.0,  # Balanced 75% default on 128GB (96GB)
+) -> HeadroomAdmissionResult:
+    """
+    Backwards-compatible wrapper delegating to balanced tiered admission.
+    """
+    res = enforce_tiered_headroom_admission(
+        model_id=model_id,
+        requested_tokens=requested_tokens,
+        current_used_vram_mb=current_used_vram_mb,
+        total_node_vram_mb=max_hard_quota_mb / 0.75 if max_hard_quota_mb > 0 else 131072.0,
+    )
+    return HeadroomAdmissionResult(
+        admitted=res.admitted,
+        estimated_kv_mb=res.estimated_kv_mb,
+        reason=res.reason,
+        compaction_advised=res.compaction_advised,
+        max_safe_tokens=res.max_safe_tokens,
+        recommended_compaction_ratio=res.recommended_compaction_ratio,
+    )
 
 
 class VRAMBudgetEstimator:
