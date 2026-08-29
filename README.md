@@ -1,15 +1,15 @@
 # omlxc
 
-`omlxc` is a private local compute hub. Version `3.4.0` provides a persistent
-`omlxcd` control/data plane, a typed Unix-socket client, a scriptable Typer CLI,
-and a keyboard-first Textual cockpit. Development and tests do not alter existing
-local services, contact real hardware, or replace the stable
+`omlxc` is a private local compute hub. Version `3.6.0` (ADR-0433) provides a persistent
+`omlxcd` control/data plane, typed Unix-socket client, scriptable Typer CLI,
+keyboard-first Textual cockpit, DFlash 2 block-diffusion speculative decoding (70+ tok/s),
+Radix Tree dynamic prefix caching, Paged KV memory block allocation, and 75% tiered VRAM headroom admission.
+Development and tests do not alter existing local services, contact real hardware, or replace the stable
 `/opt/homebrew/bin/omlxc` command.
 
 The v3 boundary is explicit:
 
-- An interactive `omlxc` opens the eight-page compute cockpit; a non-TTY caller
-  must select a command.
+- An interactive `omlxc` opens the compute cockpit; a non-TTY caller must select a command.
 - CLI/TUI state and mutations use only the private `omlxcd` Unix socket. Commands
   whose daemon endpoint does not exist return a typed `unsupported` error instead
   of bypassing the daemon.
@@ -18,7 +18,7 @@ The v3 boundary is explicit:
   failures.
 - `bin/omlx` and its 32 tests remain the legacy characterization baseline.
 
-Common read-only commands:
+Common read-only and fabric commands:
 
 ```bash
 omlxc status
@@ -30,6 +30,7 @@ omlxc routes plan local/model-id --profile interactive --json
 omlxc fabric inspect
 omlxc fabric triage "Design a lock-free queue to prevent ABA problem"
 omlxc fabric vram coding 32768
+omlxc fabric warm
 omlxc jobs watch --output ndjson
 omlxc metrics show
 omlxc daemon status
