@@ -1,8 +1,17 @@
+from .adaptive_kv_quant import AdaptiveKVQuantizer, CompressedKVPlan, KVQuantPrecision
 from .affinity import AffinityConfig, SessionAffinityRegistry, calculate_prefix_hash
 from .benchmark import BenchmarkRunner
 from .capacity import CapacityCoordinator
 from .circuit_breaker import CircuitBreaker, CircuitBreakerRegistry
+from .cluster_partition import ClusterNodeRole, HeterogeneousClusterRouter, NodePlacementDecision
 from .concurrency import ConcurrencyTracker
+from .context_compressor import ContextOptimizationResult, ContextOptimizer
+from .dflash_backend import DFlashBackendManager, DFlashConfig
+from .hierarchical_cache import (
+    CacheResolutionTier,
+    HierarchicalCacheCoordinator,
+    HierarchicalResolutionPlan,
+)
 from .models import (
     AdapterBinding,
     ChatExecution,
@@ -16,12 +25,12 @@ from .models import (
     RerankResult,
 )
 from .orchestrator import DataPlaneOrchestrator
-from .registry import AdapterRegistry
-from .cluster_partition import ClusterNodeRole, HeterogeneousClusterRouter, NodePlacementDecision
-from .dflash_backend import DFlashBackendManager, DFlashConfig
+from .paged_kv import PagedKVMemoryManager, PhysicalBlock, SequenceBlockTable
 from .power_profile import PowerProfileGovernor, PowerScalingProfile
 from .prefix_snapshot import StaticPrefixSnapshotManager
 from .priority_queue import PriorityVRAMScheduler, QueuedInferenceRequest, TaskPriority
+from .radix_cache import PrefixMatchResult, RadixPrefixCache, RadixTreeNode
+from .registry import AdapterRegistry
 from .semantic_cache import CacheTier, SemanticCacheEntry, SemanticCacheRegistry
 from .telemetry import BoundRouteTelemetry, RouteTelemetryRecorder, TelemetrySink
 from .thermal import NodeEnvironmentalState, PowerSource, ThermalGuard, ThermalPressureLevel
@@ -42,9 +51,11 @@ from .vram_budget import (
 __all__ = [
     "AdapterBinding",
     "AdapterRegistry",
+    "AdaptiveKVQuantizer",
     "AffinityConfig",
     "BenchmarkRunner",
     "BoundRouteTelemetry",
+    "CacheResolutionTier",
     "CacheTier",
     "CapacityCoordinator",
     "ChatExecution",
@@ -53,8 +64,11 @@ __all__ = [
     "ClusterNodeRole",
     "CompactionResult",
     "ComplexityTier",
+    "CompressedKVPlan",
     "ConcurrencyTracker",
     "ContextCompactor",
+    "ContextOptimizationResult",
+    "ContextOptimizer",
     "DFlashBackendManager",
     "DFlashConfig",
     "DataPlaneOrchestrator",
@@ -63,14 +77,22 @@ __all__ = [
     "ExecutionErrorCode",
     "HeadroomAdmissionResult",
     "HeterogeneousClusterRouter",
+    "HierarchicalCacheCoordinator",
+    "HierarchicalResolutionPlan",
+    "KVQuantPrecision",
     "ModelArchitectureMeta",
     "NodeEnvironmentalState",
     "NodePlacementDecision",
+    "PagedKVMemoryManager",
+    "PhysicalBlock",
     "PowerProfileGovernor",
     "PowerScalingProfile",
     "PowerSource",
+    "PrefixMatchResult",
     "PriorityVRAMScheduler",
     "QueuedInferenceRequest",
+    "RadixPrefixCache",
+    "RadixTreeNode",
     "RankedItem",
     "RerankExecution",
     "Reranker",
@@ -79,6 +101,7 @@ __all__ = [
     "RouteTelemetryRecorder",
     "SemanticCacheEntry",
     "SemanticCacheRegistry",
+    "SequenceBlockTable",
     "SessionAffinityRegistry",
     "StaticPrefixSnapshotManager",
     "TaskPriority",

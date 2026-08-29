@@ -363,7 +363,7 @@ def test_repository_legacy_json_migrates_read_only_with_expected_counts(tmp_path
     migrated = migrate_legacy_json(source, base_directory=tmp_path)
 
     assert source.read_bytes() == before
-    assert len(migrated.models) == 24
+    assert len(migrated.models) == len(legacy["models"])
     assert len(migrated.nodes) == 3
     assert len(migrated.policies.fallbacks) == 23
     assert len(migrated.policies.ollama_fallbacks) == 16

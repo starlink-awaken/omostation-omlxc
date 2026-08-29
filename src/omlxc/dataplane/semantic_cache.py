@@ -155,6 +155,36 @@ class SemanticCacheRegistry:
         self._misses += 1
         return (None, None)
 
+    def lookup_exact(self, key: str, now: float | None = None) -> SemanticCacheEntry | None:
+        """Lookup exact key in cache."""
+        current_time = time.monotonic() if now is None else now
+        if key in self._entries:
+            entry = self._entries[key]
+            if not entry.is_expired(current_time):
+                entry.hit_count += 1
+                self._l1_hits += 1
+                return entry
+            del self._entries[key]
+        return None
+
+    def lookup_semantic(self, raw_prompt: str, now: float | None = None) -> SemanticCacheEntry | None:
+        """Lookup normalized semantic fingerprint in cache."""
+        current_time = time.monotonic() if now is None else now
+        fp = normalize_semantic_fingerprint(raw_prompt)
+        if fp in self._entries:
+            entry = self._entries[fp]
+            if not entry.is_expired(current_time):
+                entry.hit_count += 1
+                self._l2_hits += 1
+                return entry
+            del self._entries[fp]
+        return None
+
+    def clear(self) -> None:
+        """Clear all in-memory entries."""
+        self._entries.clear()
+
+
     def store(
         self,
         key: str,
