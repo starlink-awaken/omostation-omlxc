@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.omostation.omlxc-dma-daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>-m</string>
+        <string>omlxc.daemon.dma_daemon</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/xiamingxing/Workspace/projects/omlxc</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/xiamingxing/Workspace/runtime/logs/omlxc-dma-daemon.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/xiamingxing/Workspace/runtime/logs/omlxc-dma-daemon.err</string>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OMLXC_DMA_PROBE_INTERVAL</key>
+        <string>1</string>
+        <key>OMLXC_VRAM_ALERT_RATIO</key>
+        <string>0.75</string>
+    </dict>
+</dict>
+</plist>
