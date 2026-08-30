@@ -1873,6 +1873,102 @@ def fabric_speculative_eval(
     )
 
 
+@fabric_app.command("dma")
+def fabric_dma(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0437)."""
+    from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
+    from omlxc.daemon.dma_daemon import STATE_FILE_REL
+
+    # Check telemetry file first for live daemon metrics
+    ws = Path.cwd()
+    state_path = ws / STATE_FILE_REL
+    if not state_path.exists() and (ws.parent / STATE_FILE_REL).exists():
+        state_path = ws.parent / STATE_FILE_REL
+
+    telemetry = None
+    if state_path.exists():
+        try:
+            telemetry = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            telemetry = None
+
+    if telemetry is None:
+        bus = ThunderboltDMABus()
+        status = bus.probe_link()
+        telemetry = {
+            "is_connected": status.is_connected,
+            "active_transport": status.active_transport.value,
+            "link_speed_gbps": status.link_speed_gbps,
+            "avg_dma_latency_ms": status.average_migration_latency_ms,
+            "total_transferred_mb": status.total_transferred_mb,
+            "numa_pool_size_gb": status.numa_pool_size_gb,
+            "source": "live_bus_probe",
+        }
+    else:
+        telemetry["source"] = "dma_daemon_telemetry"
+
+    if json_output:
+        _emit_success(telemetry, request_id=_request_id())
+        return
+
+    is_conn = telemetry.get("is_connected", False)
+    status_str = "[bold green]CONNECTED[/bold green]" if is_conn else "[bold yellow]DISCONNECTED[/bold yellow]"
+    _console.print(
+        Panel(
+            f"Link Status: {status_str}\n"
+            f"Active Transport: [bold cyan]{telemetry.get('active_transport', 'unknown')}[/bold cyan]\n"
+            f"Link Speed: [bold yellow]{telemetry.get('link_speed_gbps', 0.0)} Gbps[/bold yellow]\n"
+            f"DMA Latency: [bold green]{telemetry.get('avg_dma_latency_ms', 0.0)} ms[/bold green]\n"
+            f"NUMA Pool: [bold white]{telemetry.get('numa_pool_size_gb', 0.0)} GB[/bold white]\n"
+            f"Transferred: [dim]{telemetry.get('total_transferred_mb', 0.0)} MB[/dim]\n"
+            f"Source: [dim]{telemetry.get('source')}[/dim]",
+            title="[bold #7dd3f5]Thunderbolt 5 DMA Sovereign Link (ADR-0437)[/bold #7dd3f5]",
+            border_style="#5a7a9a",
+            expand=False,
+        )
+    )
+
+
+@fabric_app.command("replay")
+def fabric_replay(
+    domain: Annotated[str, typer.Option("--domain", "-d", help="Domain filter")] = "all",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Inspect experience replay buffer capacity, reservoir samples, and anti-forgetting state."""
+    from omlxc.dataplane.experience_replay import ExperienceReplayManager
+
+    ws = Path.cwd()
+    mgr = ExperienceReplayManager(workspace_root=ws)
+    stats = mgr.stats()
+
+    payload = {
+        "status": "ok",
+        "persist_path": str(mgr.persist_path),
+        "total_domains": len(stats),
+        "replay_ratio": mgr.replay_ratio,
+        "fresh_ratio": round(1.0 - mgr.replay_ratio, 2),
+        "domains": stats,
+    }
+
+    if json_output:
+        _emit_success(payload, request_id=_request_id())
+        return
+
+    _console.print(
+        Panel(
+            f"Replay Buffer Persistence: [dim]{mgr.persist_path}[/dim]\n"
+            f"Mix Ratio: [bold yellow]{int(mgr.replay_ratio * 100)}% Replay / {int((1.0 - mgr.replay_ratio) * 100)}% Fresh[/bold yellow]\n"
+            f"Active Domains: [bold cyan]{len(stats)}[/bold cyan]\n"
+            + ("\n".join(f"  • [bold white]{k}[/bold white]: {v['size']}/{v['capacity']} samples" for k, v in stats.items()) if stats else "  • (buffer empty - waiting for signature diffs)"),
+            title="[bold #7dd3f5]Experience Replay Buffer (Anti-Forgetting Engine)[/bold #7dd3f5]",
+            border_style="#5a7a9a",
+            expand=False,
+        )
+    )
+
+
 def main() -> None:
     """Run the ``omlxc`` console script."""
     app()
@@ -1880,3 +1976,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
