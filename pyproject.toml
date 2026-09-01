@@ -26,6 +26,7 @@ dependencies = [
     "tomlkit>=0.13",
     "typer>=0.15",
     "uvicorn>=0.34",
+    "flagembedding>=1.4.2",
 ]
 
 [project.scripts]
