@@ -12,9 +12,12 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "aiosqlite>=0.21",
+    # BET-Y1Q4-T3-02: local Metal-MPS embedding & rerank (CPU-fallback safe)
+    "sentence-transformers>=3.0",
+    "torch>=2.5",
     "anyio>=4.8",
     "fastapi>=0.115",
-    "httpx>=0.28",
+    "httpx[socks]>=0.28",
     "keyring>=25.6",
     "platformdirs>=4.3",
     "pydantic>=2.10",
