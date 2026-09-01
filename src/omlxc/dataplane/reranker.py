@@ -35,12 +35,14 @@ class RerankEngine:
         from sentence_transformers import CrossEncoder
 
         self.device = device or resolve_device()
+        self.fallback_reason: str | None = None
         try:
             self._ce = CrossEncoder(model_name, device=self.device)
             self.backend = "cross-encoder"
-        except Exception:  # circuit_breaker: model absent → dense fallback
+        except Exception as exc:  # circuit_breaker: model absent/broken → dense fallback
             from sentence_transformers import SentenceTransformer
 
+            self.fallback_reason = f"{type(exc).__name__}: {exc}"
             self._fallback_bi = SentenceTransformer(FALLBACK_MODEL, device=self.device)
             self.backend = "dense-fallback"
 
@@ -70,6 +72,7 @@ class RerankEngine:
             "top_doc": docs[order[0]] if docs else "",
             "scores_head": [round(scores[i], 4) for i in order[:5]],
             "degraded": self.backend != "cross-encoder",
+            "fallback_reason": self.fallback_reason,
         }
 
 
