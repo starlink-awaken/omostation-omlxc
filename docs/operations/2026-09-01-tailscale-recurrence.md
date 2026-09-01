@@ -12,9 +12,24 @@ title: Tailscale 僵尸态复发 (2026-08-25 同款病理)
 
 ## 症状
 
-- Mac mini (100.99.210.78) / y7000p (100.64.43.36) 全节点失联
-- `tailscale status` → `failed to connect to local tailscaled`（socket `/var/run/tailscaled.socket` 不存在）
+- 排查初期误判 Mac mini "全节点失联"（bonjour 名解析失败误导——tailscale 节点
+  本就不用 bonjour 名，应直接 ping 100.x 地址）
+- `tailscale status`（不带 --socket）→ `failed to connect to local tailscaled`
 - T3-02 P3 mesh 服务化被阻塞
+
+## 真相（修正诊断）
+
+**daemon 一直活着**——brew daemon 监听 `/var/run/tailscale.brew.sock`，CLI
+默认连 `/var/run/tailscaled.socket` → "CLI 连错后端" 假死。与 2026-08-25
+复盘原话一字不差：**"CLI 不带 --socket 连错后端"**。
+
+- `tailscale --socket=/var/run/tailscale.brew.sock status` → **Mac mini active**（relay hkg）
+- ping 100.99.210.78 通；SSH 通（uptime 9d）
+- utun0 RUNNING + 100.x 路由 = **真实工作态**，非残留假象（初判"僵尸接口"为误诊）
+- `sudo launchctl load` 报错 `5: Input/output error` 的真因：服务已在运行，重复加载当然失败
+
+**教训（本 agent 自身复现了认知陷阱）**：不查 socket 变体就断言 "daemon 死"——
+8/25 已付过一次学费的病理，本次排查第一轮又踩。socket 钉死必须成为肌肉记忆。
 
 ## 病理（与 2026-08-25 复盘完全同构）
 
@@ -34,13 +49,15 @@ title: Tailscale 僵尸态复发 (2026-08-25 同款病理)
 3. 放大器 B：无任何定期产出断言（omlxc `run_direct_doctor` 有 tailscale 检查但从未被调度）
 4. 放大器 C：`~/.config/omlxc/config.toml` 的 executable 指向版本化 Cellar symlink（brew upgrade 即断链）
 
-## 处置（2026-09-01）
+## 处置（2026-09-01，全部完成）
 
-1. ✅ 心跳脚本 `bin/health/tailscale-heartbeat.sh`：status --json 产出断言 + **僵尸接口检测**（daemon 失败 + utun 挂 100.x → `zombie_interface: true` + 修复指令）；首跑即逮住本次僵尸
-2. ✅ 用户级 LaunchAgent `com.omostation.tailscale-heartbeat`（600s 间隔，RunAtLoad）——防复发机制落地
+1. ✅ 心跳脚本 `bin/health/tailscale-heartbeat.sh`：**socket 钉死**（--socket=/var/run/tailscale.brew.sock）
+   + status --json 产出断言 + 僵尸/错socket 检测；修正后首跑全绿
+   （ok=true, peers=4/2 online, macmini_online=true）
+2. ✅ 用户级 LaunchAgent `com.omostation.tailscale-heartbeat`（600s 间隔，RunAtLoad）
 3. ✅ config.toml executable → `/opt/homebrew/bin/tailscale`（brew 稳定 symlink）
-4. ⏳ daemon 恢复（需 sudo，用户手动）：`sudo launchctl load -w /Library/LaunchDaemons/com.tailscale.brew.plist && tailscale up`
-5. ⏳ 恢复后：验证 peers + SSH Mac mini + T3-02 P3 mesh 注册
+4. ✅ 连通验证：ping + SSH Mac mini (uptime 9d) 全通——**无需 sudo 恢复，daemon 本来就在跑**
+5. ⏭ T3-02 P3 mesh 注册：解除阻塞，Mac mini 在线即可执行
 
 ## 治理条款沉淀（候选）
 
