@@ -91,13 +91,11 @@ fi
 
 echo ""
 echo "--- AetherForge 网关 ---"
-# 网关需要鉴权，未带 key 的探测会拿到 401——这代表"活着"不是"挂了"，
-# 只有连接层面的失败(exit!=0，端口都连不上)才算真的下线。
-if curl -s -o /dev/null -m 3 http://127.0.0.1:4000/v1/models 2>&1; then
-  echo "  ✅ 端口 4000 响应正常 (有响应即视为活着，未校验鉴权)"
-else
-  echo "  ❌ 端口 4000 连接失败，真的下线了"
-fi
+# 2026-09-02 退役: 网关(4000 TCP)已整体下线(plist+部署目录已移除), aetherforge
+# dev 侧正演进 UDS 直连 omlxc 形态(git 7245ecc/23640d6)。检查项随之退役,
+# 消除假告警。若将来重启网关形态, 恢复此段并解除下行 heartbeat 注释。
+echo "  ⏸️  4000 网关已退役(UDS 形态切换中), 不再检查"
+: # heartbeat "gateway free_pool scan"  "$HOME/.aetherforge/state/free_pool_last_seen.json" 15
 
 echo ""
 echo "--- 看门狗最近事件 (最近5条，全绿=无输出) ---"
@@ -120,7 +118,8 @@ heartbeat() { # $1=名称 $2=状态文件 $3=阈值分钟
 }
 heartbeat "omlxc daemon 探测"      "$HOME/.omlx/stats.json"                            10
 heartbeat "pipeline-watchdog 5min"  "$HOME/.config/omlxc/watchdog.log"                  10
-heartbeat "gateway free_pool scan"  "$HOME/.aetherforge/state/free_pool_last_seen.json" 15
+# 2026-09-02 网关退役, free_pool 心跳随之注释 (恢复网关形态时一并恢复)
+# heartbeat "gateway free_pool scan"  "$HOME/.aetherforge/state/free_pool_last_seen.json" 15
 
 # 2026-08-25 产出断言(复盘 §二): 心跳证明"机制在转"不证明"产出为真"。
 # mail-daemon 心跳新鲜 + 最近连续 3 轮 0任务0草稿 → LLM 认知层疑似失明
