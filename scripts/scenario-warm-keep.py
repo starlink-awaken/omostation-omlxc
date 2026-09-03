@@ -47,8 +47,11 @@ WARM_TARGETS = [
     # 2026-08-25 #6 定案: embedding(8GB) 迁 mac-mini ollama bge-m3 常驻
     # (remote_resident role=embedding 维护), MBP 常驻 56→48GB; bf16 退役
     # 转正(mac-mini 48h 评审 PASS, 稳态补齐成功率 91%)。
-    ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat", BASE_URL),
-    ("qwen-3.8-27b", "chat 场景默认模型(真实流量91%走它), 已验证响应正常", 24.0, "chat", BASE_URL),
+    # 2026-09-03 退役注释: 本机 oMLX 保活已迁移 daemon 原生 reconcile
+    # (coding/qwen-3.8-27b resident=true, 实测自动拉起 loaded=True)。
+    # 若 reconcile 异常, 取消下行注释即可回滚。
+    # ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat", BASE_URL),
+    # ("qwen-3.8-27b", "chat 场景默认模型(真实流量91%走它), 已验证响应正常", 24.0, "chat", BASE_URL),
     # 2026-08-24 职责转移: mythos 的 LM 兜底已由 mac-mini 常驻(4.78GB 量化版,
     # remote-resident-maintain 维护)接管, oMLX 侧 mythos 为主路径 —— MBP 的
     # bf16(18.84GB)纯冗余且是 swap 压力大头, 移出保活并手动卸载。若 mac-mini
