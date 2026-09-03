@@ -10,8 +10,8 @@
 | ID | 事项 | 严重度 | 备注 |
 |---|---|---|---|
 | OMLXC-PMSET-DISPLAYSLEEP | mac-mini `sudo pmset -a displaysleep 5` | low | 需 mini 的 sudo 密码, SSH 免密进得去但提权进不去; 差用户一次手工执行 |
-| OMLXC-DAEMON-STATS-CALIBER | daemon stats 口径存疑 | medium | 32930 请求 vs 71.8万 tokens(均值22 tok/req), 疑似只统计部分模型; 影响周报可信度 |
-| OMLXC-KEEPALIVE-CONSOLIDATION | 保活三轨归一 | medium | 第一步 resident=true 迁移需内存窗口 ≥20GB(当日 15GB 主动暂缓); 完成后退役 scenario-warm-keep 本机目标 |
+| ~~OMLXC-DAEMON-STATS-CALIBER~~ | ✅ 已解决(8-24 0dc3937 已实现分流) | - | usage-stats.sh 已含"真实 vs 保活"分流(判据 avg_completion>5), 实测 真实2965(3.8%) vs 探测75934; 台账条目系排查滞后 |
+| OMLXC-KEEPALIVE-CONSOLIDATION | 保活三轨归一 | medium | **第一步完成(9-03)**: coding/qwen-3.8-27b resident=true, daemon 原生 reconcile 已自动拉起(实测 loaded=True×2, 内存窗口 25.2GB); 48h 观察后退役 scenario-warm-keep 本机目标 |
 | OMLXC-SHARED-WORKTREE-RISK | 主仓共享 worktree 并行风险 | high | 2026-09-02 三撞: 提交被 checkout 甩掉(reflog 恢复)/台账被 clean; 短期靠"提交即 push"; 治本待 M2 git 收口 |
 
 ## Resolved (2026-09-02)
