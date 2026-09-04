@@ -21,13 +21,22 @@ from pathlib import Path
 
 import pytest
 
-WS_ROOT = Path(__file__).resolve().parents[4]  # tests/integration/ → omlxc/ → projects/ → omo
-FO_PATH = WS_ROOT / "projects" / "omlxc" / "src" / "omlxc" / "dataplane" / "failover.py"
+# Resolve failover.py whether tests run inside omlxc repo or the parent monorepo.
+_HERE = Path(__file__).resolve()
+_CANDIDATES = (
+    _HERE.parents[2] / "src" / "omlxc" / "dataplane" / "failover.py",  # omlxc repo root
+    _HERE.parents[4] / "projects" / "omlxc" / "src" / "omlxc" / "dataplane" / "failover.py",  # monorepo
+)
+FO_PATH = next((p for p in _CANDIDATES if p.is_file()), _CANDIDATES[0])
 TELEMETRY_PATH_REL = ".omo/state/mesh-telemetry.json"
 
 
 def _load_failover():
     import types
+    if not FO_PATH.is_file():
+        raise FileNotFoundError(
+            f"failover.py not found; tried: {', '.join(str(p) for p in _CANDIDATES)}"
+        )
     source = FO_PATH.read_text(encoding="utf-8")
     mod = types.ModuleType("failover_under_test")
     mod.__file__ = str(FO_PATH)
