@@ -6,9 +6,11 @@ Provides:
 3. Multi-path parallel verification simulation yielding 85~100+ tok/s throughput.
 """
 from __future__ import annotations
+
 import math
 from dataclasses import dataclass, field
-from typing import 
+
+
 @dataclass(slots=True)
 class SpeculativeTreeNode:
     token_id: int

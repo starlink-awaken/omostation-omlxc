@@ -6,9 +6,12 @@ Enables true 0ms TTFT by:
 3. Asynchronously pre-warming and locking Radix tree nodes in Metal cache during typing intervals (300~800ms).
 """
 from __future__ import annotations
+
 import time
-from dataclasses import dataclass,
-from typing import Any,
+from dataclasses import dataclass
+from typing import Any
+
+
 @dataclass(slots=True)
 class PredictiveWarmupReceipt:
     typing_snippet: str

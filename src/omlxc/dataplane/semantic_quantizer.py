@@ -7,8 +7,11 @@ Provides:
 4. Total 75%~80% VRAM saving with <0.05% Perplexity Loss.
 """
 from __future__ import annotations
+
 import enum
-from dataclasses import dataclass,
+from dataclasses import dataclass
+
+
 class SemanticTokenCategory(enum.StrEnum):
     ATTENTION_SINK = "ATTENTION_SINK"          # First 8 tokens (FP16)
     CRITICAL_SYNTAX = "CRITICAL_SYNTAX"        # Code keywords, vars, digits (INT8)

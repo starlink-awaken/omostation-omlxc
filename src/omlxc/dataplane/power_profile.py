@@ -5,9 +5,12 @@ Dynamically switches inference throughput profiles based on power source (AC vs 
 - Battery Mode: Low-power profile, reduced spec steps (40 tok/s), 60% power reduction.
 """
 from __future__ import annotations
+
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
+
+
 class PowerSource(StrEnum):
     AC = "ac"
     BATTERY = "battery"

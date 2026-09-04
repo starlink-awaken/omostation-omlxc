@@ -6,9 +6,11 @@ Enables:
 3. Elevating speculative draft acceptance rate from ~75% to 88%~92%+, accelerating decoding to 110+ tok/s.
 """
 from __future__ import annotations
+
 import math
-from dataclasses import dataclass,
-from typing import 
+from dataclasses import dataclass
+
+
 @dataclass(slots=True)
 class DistillationStepResult:
     step_index: int

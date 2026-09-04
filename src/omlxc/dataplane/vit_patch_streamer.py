@@ -6,10 +6,12 @@ Enables:
 3. Multi-modal Time-To-First-Token (TTFT) reduced by >70% compared to full-image blocking serialization.
 """
 from __future__ import annotations
+
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import 
+
+
 @dataclass(slots=True)
 class ViTPatchChunk:
     chunk_index: int

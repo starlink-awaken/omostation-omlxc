@@ -6,8 +6,11 @@ Coordinates model routing across the 3 physical hardware nodes:
 3. Y7000P RTX4070 8G: CUDA-accelerated OCR, speech transcription, vision (Sensory worker)
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
+
+
 class ClusterNodeRole(StrEnum):
     PRIMARY_BRAIN = "mbp-m5-max-128g"
     MEMORY_WORKER = "mac-mini-m4-24g"

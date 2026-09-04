@@ -4,8 +4,11 @@ Provides aggressive context optimization for large files, repetitive system inst
 and multi-turn tool traces to maximize effective context window and reduce prefill latency.
 """
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass
+
+
 @dataclass(slots=True)
 class ContextOptimizationResult:
     """Telemetry report after optimizing prompt/code context."""

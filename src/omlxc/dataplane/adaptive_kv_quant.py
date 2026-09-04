@@ -5,8 +5,11 @@ Implements:
 2. Attention Sink & Heavy-Hitter (H2O) pruning for infinite multi-turn streaming without OOM.
 """
 from __future__ import annotations
+
 import enum
 from dataclasses import dataclass
+
+
 class KVQuantPrecision(enum.StrEnum):
     FP16 = "fp16"
     INT8 = "int8"

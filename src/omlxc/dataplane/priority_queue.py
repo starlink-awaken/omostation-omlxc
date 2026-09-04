@@ -6,15 +6,19 @@ Provides dynamic queuing and preemption policies for multi-agent workloads:
 - P2: Background Maintenance / Vector Indexing (Deferred on VRAM pressure)
 """
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
+
 from omlxc.dataplane.vram_budget import (
     TieredHeadroomResult,
     VRAMPressureTier,
     enforce_tiered_headroom_admission,
 )
+
+
 class TaskPriority(IntEnum):
     P0_INTERACTIVE = 0  # Preempts background, zero-wait
     P1_PIPELINE = 1     # Agent standard execution

@@ -11,10 +11,13 @@ Features:
 - Multi-node collaborative cross-execution pipeline (Embedding -> OCR -> Reasoning)
 """
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any,
+from typing import Any
+
+
 class NodeStatus(StrEnum):
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"

@@ -4,9 +4,12 @@ Calculates dynamic key-value cache memory expansion for long-context requests
 (32k~128k) to prevent out-of-memory (OOM) kernel crashes and Metal/CUDA swap storms.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final
+
+
 @dataclass(frozen=True, slots=True)
 class HeadroomAdmissionResult:
     """Result of KV Cache headroom evaluation with compaction advisory."""

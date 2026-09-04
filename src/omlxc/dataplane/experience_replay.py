@@ -10,11 +10,14 @@ Design:
 - Serialization: JSON Lines to <workspace>/.omo/state/lora-replay-buffer.jsonl
 """
 from __future__ import annotations
+
 import json
 import random
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+
 @dataclass
 class ReplaySample:
     """A single (instruction, output) training pair in the replay buffer."""

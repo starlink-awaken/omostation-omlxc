@@ -6,10 +6,12 @@ Enables:
 3. Transparent fallback to 10GbE / TCP without interrupting active inference.
 """
 from __future__ import annotations
+
 import enum
 import time
 from dataclasses import dataclass, field
-from typing import 
+
+
 class ThunderboltTransportMode(enum.StrEnum):
     THUNDERBOLT_5_DMA = "THUNDERBOLT_5_DMA"
     SHARED_MEMORY_MMAP = "SHARED_MEMORY_MMAP"

@@ -8,6 +8,7 @@ Manages lifecycle of:
 5. Telemetry: writes JSON state to .omo/state/mesh-telemetry.json on each probe cycle.
 """
 from __future__ import annotations
+
 import json
 import os
 import signal
@@ -15,11 +16,13 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
 from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 from omlxc.dataplane.thunderbolt_dma import (
     ThunderboltDMABus,
     ThunderboltTransportMode,
 )
+
 PROBE_INTERVAL_S: float = float(os.environ.get("OMLXC_DMA_PROBE_INTERVAL", "1.0"))
 VRAM_ALERT_RATIO: float = float(os.environ.get("OMLXC_VRAM_ALERT_RATIO", "0.75"))
 VRAM_TOTAL_MBP_MB: float = 131072.0   # 128GB MBP M5 Max

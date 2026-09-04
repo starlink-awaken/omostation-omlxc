@@ -6,7 +6,10 @@ Simulates:
 3. 9x effective bandwidth improvement across Apple Silicon M-series Unified Memory.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
+
+
 @dataclass(frozen=True, slots=True)
 class MetalTileExecutionProfile:
     batch_size: int

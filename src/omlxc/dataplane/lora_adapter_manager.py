@@ -6,9 +6,11 @@ Enables:
 3. Offline non-intrusive distillation on Mac mini M4 idle compute, making the sovereign model 'smarter and more aligned'.
 """
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
-from typing import 
+
+
 @dataclass(slots=True)
 class LoRAAdapterMetadata:
     adapter_id: str

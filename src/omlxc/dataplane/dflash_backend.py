@@ -5,11 +5,13 @@ for Qwen3.8-27B on Apple Silicon M-series chips with two-tap dynamic convolution
 and lightweight path selection.
 """
 from __future__ import annotations
+
 import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 logger = logging.getLogger("omlxc.dflash")
 @dataclass(frozen=True, slots=True)
 class DFlashConfig:

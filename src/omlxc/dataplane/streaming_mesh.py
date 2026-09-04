@@ -7,11 +7,13 @@ Enables low-latency asynchronous token/chunk streaming across:
 Replaces batch-and-wait HTTP calls with chunked streaming pipelines (<20ms first-chunk handoff).
 """
 from __future__ import annotations
+
 import asyncio
 import time
-from collections.abc import 
 from dataclasses import dataclass, field
-from typing import Any,
+from typing import Any
+
+
 @dataclass(slots=True)
 class StreamChunk:
     chunk_id: int
