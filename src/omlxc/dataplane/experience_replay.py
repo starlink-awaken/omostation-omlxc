@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Optional
 
@@ -175,8 +175,12 @@ class ExperienceReplayManager:
         return self._buffers[domain]
 
     def _restore(self) -> int:
+        # Tolerant restore: broker-written lines (e.g. value-evolution-connector
+        # --record-diff) carry extra keys such as task_id, and a single bad
+        # line must not abort the whole buffer (BET-Y1Q3-T10-105).
         if not self.persist_path.exists():
             return 0
+        known = {f.name for f in fields(ReplaySample)}
         count = 0
         try:
             with self.persist_path.open("r", encoding="utf-8") as f:
@@ -184,11 +188,23 @@ class ExperienceReplayManager:
                     line = line.strip()
                     if not line:
                         continue
-                    data = json.loads(line)
-                    sample = ReplaySample(**data)
+                    try:
+                        data = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    try:
+                        sample = ReplaySample(
+                            **{k: v for k, v in data.items() if k in known}
+                        )
+                    except TypeError:
+                        continue
+                    if not sample.domain:
+                        continue
                     self._get_or_create_buffer(sample.domain).add(sample)
                     count += 1
-        except Exception:
+        except OSError:
             pass
         return count
 
