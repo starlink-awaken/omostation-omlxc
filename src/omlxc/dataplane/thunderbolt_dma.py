@@ -1,26 +1,19 @@
 """
 Thunderbolt 5 P2P Zero-Copy DMA & Shared Memory Interconnect (ADR-0435 / omlxc V5.0).
-
 Enables:
 1. Ultra-high bandwidth (80~120Gbps) direct P2P link between MBP M5 Max and Mac mini M4.
 2. Zero-copy ring buffer with memory-mapped virtual DMA (<0.15ms block migration latency).
 3. Transparent fallback to 10GbE / TCP without interrupting active inference.
 """
-
 from __future__ import annotations
-
 import enum
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
-
-
+from typing import 
 class ThunderboltTransportMode(enum.StrEnum):
     THUNDERBOLT_5_DMA = "THUNDERBOLT_5_DMA"
     SHARED_MEMORY_MMAP = "SHARED_MEMORY_MMAP"
     HIGH_SPEED_10GBE_FALLBACK = "HIGH_SPEED_10GBE_FALLBACK"
-
-
 @dataclass(slots=True)
 class DMABlockTransferReceipt:
     block_id: str
@@ -32,8 +25,6 @@ class DMABlockTransferReceipt:
     bandwidth_gbps: float
     checksum_verified: bool = True
     timestamp: float = field(default_factory=time.time)
-
-
 @dataclass(slots=True)
 class ThunderboltBusStatus:
     is_connected: bool
@@ -43,19 +34,15 @@ class ThunderboltBusStatus:
     total_transferred_mb: float
     total_blocks_migrated: int
     numa_pool_size_gb: float  # e.g., 128 + 24 = 152GB
-
-
 class P2PSharedMemoryRing:
     """
     Simulates a lock-free circular P2P DMA ring buffer mapped between MBP and Mac mini.
     """
-
     def __init__(self, ring_size_mb: float = 1024.0) -> None:
         self.ring_size_mb = ring_size_mb
         self.allocated_mb = 0.0
         self.head_ptr = 0
         self.tail_ptr = 0
-
     def write_block(self, block_id: str, size_mb: float) -> bool:
         if self.allocated_mb + size_mb > self.ring_size_mb:
             # Overwrite or roll over
@@ -63,13 +50,10 @@ class P2PSharedMemoryRing:
         else:
             self.allocated_mb += size_mb
         return True
-
-
 class ThunderboltDMABus:
     """
     Manages Thunderbolt 5 P2P DMA interconnect between MBP M5 Max and Mac mini M4.
     """
-
     def __init__(
         self,
         prefer_mode: ThunderboltTransportMode = ThunderboltTransportMode.THUNDERBOLT_5_DMA,
@@ -83,7 +67,6 @@ class ThunderboltDMABus:
         self.total_blocks_migrated = 0
         self.latencies: list[float] = []
         self.ring_buffer = P2PSharedMemoryRing()
-
     def probe_link(self) -> ThunderboltBusStatus:
         """
         Probes the physical link speed and active transport mode.
@@ -96,9 +79,7 @@ class ThunderboltDMABus:
             active_mode = ThunderboltTransportMode.HIGH_SPEED_10GBE_FALLBACK
             speed = 10.0
             base_latency = 1.25
-
         avg_lat = sum(self.latencies) / len(self.latencies) if self.latencies else base_latency
-
         return ThunderboltBusStatus(
             is_connected=self.is_connected,
             active_transport=active_mode,
@@ -108,7 +89,6 @@ class ThunderboltDMABus:
             total_blocks_migrated=self.total_blocks_migrated,
             numa_pool_size_gb=152.0,  # 128GB MBP + 24GB Mac mini
         )
-
     def transfer_kv_block(
         self,
         block_id: str,
@@ -120,7 +100,6 @@ class ThunderboltDMABus:
         Executes a zero-copy DMA block migration between nodes.
         """
         status = self.probe_link()
-
         if status.active_transport == ThunderboltTransportMode.THUNDERBOLT_5_DMA:
             # Latency for Thunderbolt 5 DMA: size / bandwidth + ~0.08ms overhead
             latency_ms = 0.08 + (size_mb * 8.0 / (self.link_speed_gbps * 1024.0)) * 1000.0
@@ -132,12 +111,10 @@ class ThunderboltDMABus:
             # 10GbE Network Fallback
             latency_ms = 1.15 + (size_mb * 8.0 / (10.0 * 1024.0)) * 1000.0
             bandwidth = 10.0
-
         self.ring_buffer.write_block(block_id, size_mb)
         self.total_transferred_mb += size_mb
         self.total_blocks_migrated += 1
         self.latencies.append(latency_ms)
-
         return DMABlockTransferReceipt(
             block_id=block_id,
             source_node=source_node,

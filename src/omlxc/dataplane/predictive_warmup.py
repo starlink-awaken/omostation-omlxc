@@ -1,19 +1,14 @@
 """
 Typing-Time Predictive Warmup Engine (ADR-0434).
-
 Enables true 0ms TTFT by:
 1. Monitoring user / agent partial input streams in real-time.
 2. Predicting target domain, relevant SOP documents, and code prefix tokens before the user presses Enter.
 3. Asynchronously pre-warming and locking Radix tree nodes in Metal cache during typing intervals (300~800ms).
 """
-
 from __future__ import annotations
-
 import time
-from dataclasses import dataclass, field
-from typing import Any, Optional
-
-
+from dataclasses import dataclass,
+from typing import Any,
 @dataclass(slots=True)
 class PredictiveWarmupReceipt:
     typing_snippet: str
@@ -23,13 +18,10 @@ class PredictiveWarmupReceipt:
     is_ready_for_zero_ttft: bool
     warmup_duration_ms: float
     target_models: list[str]
-
-
 class PredictiveWarmupEngine:
     """
     Predictive intent parser and pre-emptive Radix tree pre-warmer.
     """
-
     def __init__(self) -> None:
         self._domain_signatures: dict[str, dict[str, Any]] = {
             "code_refactor": {
@@ -54,7 +46,6 @@ class PredictiveWarmupEngine:
             },
         }
         self.locked_prefix_cache: set[str] = set()
-
     def process_typing_stream(self, partial_text: str) -> PredictiveWarmupReceipt:
         """
         Parses partial keystrokes and immediately warms up matching Radix prefix trees in background.
@@ -66,18 +57,15 @@ class PredictiveWarmupEngine:
             "prefix_tokens": 400,
             "models": ["qwen-3.8-27b-dflash"],
         }
-
         for domain, meta in self._domain_signatures.items():
             if any(kw in text_lower for kw in meta["keywords"]):
                 matched_domain = domain
                 matched_meta = meta
                 break
-
         # Simulate async background locking of Radix prefix blocks
         prefix_key = f"prefix_{matched_domain}_{matched_meta['prefix_tokens']}"
         self.locked_prefix_cache.add(prefix_key)
         duration_ms = (time.time() - start) * 1000.0 + 1.2  # sub-millisecond async task
-
         return PredictiveWarmupReceipt(
             typing_snippet=partial_text,
             predicted_domain=matched_domain,

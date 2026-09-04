@@ -1,39 +1,28 @@
 """
 Multi-Node Heterogeneous Cluster Coordinator & Dynamic Health Scheduler (ADR-0433).
-
 Provides resilient, low-latency coordination across the 3 heterogeneous nodes:
 1. MBP M5 Max 128G: Primary Decision Brain (DFlash 2, 70+ tok/s, Deep Reasoning, Coding)
 2. Mac mini M4 24G: Dedicated Memory & Vector Worker (24/7 BGE-M3 Embeddings & Reranker)
 3. Y7000P RTX4070 8G: Dedicated Sensory Worker (CUDA Qwen2.5-VL Vision, OCR, Whisper Audio)
-
 Features:
 - Dynamic heartbeat & health state tracking (HEALTHY, DEGRADED, OFFLINE)
 - EWMA TTFT latency & in-flight queue depth-aware adaptive routing
 - Automatic circuit breaking & zero-error seamless failover to MBP primary brain
 - Multi-node collaborative cross-execution pipeline (Embedding -> OCR -> Reasoning)
 """
-
 from __future__ import annotations
-
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
-from typing import Any, Optional
-
-
+from enum import StrEnum
+from typing import Any,
 class NodeStatus(StrEnum):
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"
     OFFLINE = "OFFLINE"
-
-
 class NodeRole(StrEnum):
     PRIMARY_BRAIN = "PRIMARY_BRAIN"
     MEMORY_WORKER = "MEMORY_WORKER"
     SENSORY_WORKER = "SENSORY_WORKER"
-
-
 @dataclass
 class ClusterNodeInfo:
     node_id: str
@@ -48,8 +37,6 @@ class ClusterNodeInfo:
     ewma_latency_ms: float = 20.0
     last_heartbeat: float = field(default_factory=time.time)
     preferred_capabilities: list[str] = field(default_factory=list)
-
-
 @dataclass(frozen=True, slots=True)
 class RoutingResult:
     target_node_id: str
@@ -58,15 +45,11 @@ class RoutingResult:
     is_fallback: bool
     reason: str
     estimated_latency_ms: float
-
-
 @dataclass
 class PipelineStage:
     stage_id: str
     capability: str  # "embedding", "vision", "reasoning"
     payload: Any
-
-
 @dataclass
 class PipelineExecutionReceipt:
     stages_completed: int
@@ -74,13 +57,10 @@ class PipelineExecutionReceipt:
     total_duration_ms: float
     all_success: bool
     results: dict[str, Any]
-
-
 class MultiNodeClusterCoordinator:
     """
     Coordinates and load-balances heterogeneous compute tasks across MBP, Mac mini, and Y7000P.
     """
-
     def __init__(self, failure_threshold: int = 3, recovery_threshold: int = 2) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_threshold = recovery_threshold
@@ -116,13 +96,11 @@ class MultiNodeClusterCoordinator:
                 preferred_capabilities=["vision", "ocr", "speech", "whisper", "multimodal"],
             ),
         }
-
     def record_heartbeat(self, node_id: str, success: bool, latency_ms: float | None = None) -> None:
         if node_id not in self.nodes:
             return
         node = self.nodes[node_id]
         node.last_heartbeat = time.time()
-
         if success:
             node.consecutive_failures = 0
             node.consecutive_successes += 1
@@ -139,13 +117,11 @@ class MultiNodeClusterCoordinator:
                 node.status = NodeStatus.OFFLINE
             else:
                 node.status = NodeStatus.DEGRADED
-
     def select_node_for_task(self, capability: str, model_id: str | None = None) -> RoutingResult:
         """
         Determines the optimal placement node for a task with automatic health failover.
         """
         norm_cap = capability.lower()
-
         # Determine primary target based on capability
         if any(kw in norm_cap for kw in ["embed", "rerank", "vector", "memory"]):
             primary_id = "mac-mini-m4-24g"
@@ -159,9 +135,7 @@ class MultiNodeClusterCoordinator:
             primary_id = "mbp-m5-max-128g"
             preferred_backend = "mlx_lm/dflash"
             affinity_msg = "High-bandwidth unified memory for deep reasoning & DFlash 2 speculation."
-
         primary_node = self.nodes[primary_id]
-
         # Check health and in-flight load of primary node
         if primary_node.status == NodeStatus.HEALTHY and primary_node.in_flight_tasks < 16:
             return RoutingResult(
@@ -172,7 +146,6 @@ class MultiNodeClusterCoordinator:
                 reason=affinity_msg,
                 estimated_latency_ms=primary_node.ewma_latency_ms,
             )
-
         # Failover to local primary brain
         fallback_node = self.nodes["mbp-m5-max-128g"]
         return RoutingResult(
@@ -183,7 +156,6 @@ class MultiNodeClusterCoordinator:
             reason=f"Target node '{primary_node.name}' is {primary_node.status.value}; transparently failed over to primary MBP brain.",
             estimated_latency_ms=fallback_node.ewma_latency_ms,
         )
-
     def execute_cross_node_pipeline(self, stages: list[PipelineStage]) -> PipelineExecutionReceipt:
         """
         Simulates end-to-end collaborative cross-node execution across stages.
@@ -192,13 +164,11 @@ class MultiNodeClusterCoordinator:
         participating_nodes = []
         results = {}
         all_success = True
-
         for stage in stages:
             routing = self.select_node_for_task(stage.capability)
             participating_nodes.append(routing.target_node_name)
             node = self.nodes[routing.target_node_id]
             node.in_flight_tasks += 1
-
             try:
                 # Mock stage computation latency
                 stage_latency = routing.estimated_latency_ms
@@ -216,11 +186,9 @@ class MultiNodeClusterCoordinator:
                 self.record_heartbeat(routing.target_node_id, success=False)
             finally:
                 node.in_flight_tasks = max(0, node.in_flight_tasks - 1)
-
         total_duration = (time.perf_counter() - start_time) * 1000.0 + sum(
             r.get("latency_ms", 0.0) for r in results.values()
         )
-
         return PipelineExecutionReceipt(
             stages_completed=len(results),
             participating_nodes=list(dict.fromkeys(participating_nodes)),
@@ -228,7 +196,6 @@ class MultiNodeClusterCoordinator:
             all_success=all_success,
             results=results,
         )
-
     def get_cluster_status_report(self) -> dict[str, Any]:
         """
         Generates a comprehensive snapshot of cluster nodes, health, roles, and latency.

@@ -1,25 +1,17 @@
 """
 Heterogeneous Cluster Workload Partitioning & Offloading Router (ADR-0205).
-
 Coordinates model routing across the 3 physical hardware nodes:
 1. MBP M5 Max 128G: High-throughput reasoning, complex coding, DFlash 2 (Primary brain)
 2. Mac mini M4 24G: 24/7 background embeddings, rerankers, semantic triage (Memory worker)
 3. Y7000P RTX4070 8G: CUDA-accelerated OCR, speech transcription, vision (Sensory worker)
 """
-
 from __future__ import annotations
-
 from dataclasses import dataclass
-from enum import Enum, StrEnum
-from typing import Any
-
-
+from enum import StrEnum
 class ClusterNodeRole(StrEnum):
     PRIMARY_BRAIN = "mbp-m5-max-128g"
     MEMORY_WORKER = "mac-mini-m4-24g"
     SENSORY_WORKER = "y7000p-rtx4070-8g"
-
-
 @dataclass(frozen=True, slots=True)
 class NodePlacementDecision:
     target_node_id: str
@@ -27,13 +19,10 @@ class NodePlacementDecision:
     preferred_backend: str
     affinity_reason: str
     fallback_node_id: str
-
-
 class HeterogeneousClusterRouter:
     """
     Directs inference requests to the optimal hardware node based on task category.
     """
-
     NODE_MAPPINGS = {
         # 1. Embeddings and Rerankers -> Offload to Mac mini M4 24G (24H dedicated background pipeline)
         "embedding": NodePlacementDecision(
@@ -57,7 +46,6 @@ class HeterogeneousClusterRouter:
             affinity_reason="Dedicated Reranker pipeline on M4 Neural Engine.",
             fallback_node_id="mbp-m5-max-128g",
         ),
-
         # 2. Vision, OCR, and CUDA Speech -> Offload to Y7000P RTX4070 (CUDA specialized compute)
         "vision": NodePlacementDecision(
             target_node_id="y7000p-rtx4070-8g",
@@ -80,7 +68,6 @@ class HeterogeneousClusterRouter:
             affinity_reason="CUDA Tensor Core acceleration for visual processing.",
             fallback_node_id="mbp-m5-max-128g",
         ),
-
         # 3. Heavy Reasoning, Coding, and DFlash 2 Speculation -> MBP M5 Max 128G (Unified Bandwidth SOTA)
         "qwen-3.8-27b": NodePlacementDecision(
             target_node_id="mbp-m5-max-128g",
@@ -111,12 +98,10 @@ class HeterogeneousClusterRouter:
             fallback_node_id="mac-mini-m4-24g",
         ),
     }
-
     @classmethod
     def route_model(cls, model_id: str) -> NodePlacementDecision:
         if model_id in cls.NODE_MAPPINGS:
             return cls.NODE_MAPPINGS[model_id]
-
         # Default fallback rule based on model naming heuristics
         if "embed" in model_id or "rerank" in model_id:
             return cls.NODE_MAPPINGS["embedding"]

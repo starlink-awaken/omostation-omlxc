@@ -1,6 +1,5 @@
 """
 omlxc V5.0 -- Sovereign Mesh DMA Daemon Controller (ADR-0437).
-
 Manages lifecycle of:
 1. ThunderboltDMABus: Physical P2P 120Gbps link between MBP M5 Max and Mac mini M4.
 2. Automatic heartbeat probing every 1 second; smooth fallback to 10GbE/TCP on disconnect.
@@ -9,7 +8,6 @@ Manages lifecycle of:
 5. Telemetry: writes JSON state to .omo/state/mesh-telemetry.json on each probe cycle.
 """
 from __future__ import annotations
-
 import json
 import os
 import signal
@@ -17,22 +15,17 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
-
 from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 from omlxc.dataplane.thunderbolt_dma import (
     ThunderboltDMABus,
     ThunderboltTransportMode,
 )
-
 PROBE_INTERVAL_S: float = float(os.environ.get("OMLXC_DMA_PROBE_INTERVAL", "1.0"))
 VRAM_ALERT_RATIO: float = float(os.environ.get("OMLXC_VRAM_ALERT_RATIO", "0.75"))
 VRAM_TOTAL_MBP_MB: float = 131072.0   # 128GB MBP M5 Max
 RECONNECT_BASE_S: float = 1.0
 RECONNECT_MAX_S: float = 30.0
 STATE_FILE_REL: str = ".omo/state/mesh-telemetry.json"
-
-
 @dataclass
 class MeshTelemetrySnapshot:
     """Telemetry payload written on each probe cycle."""
@@ -50,11 +43,8 @@ class MeshTelemetrySnapshot:
     reconnect_attempts: int = 0
     daemon_uptime_s: float = 0.0
     lora_active_adapter: str = "none"
-
-
 class DMADaemonController:
     """Long-running sovereign mesh daemon managing P2P DMA heartbeat loop."""
-
     def __init__(
         self,
         workspace_root: Path | None = None,
@@ -79,7 +69,6 @@ class DMADaemonController:
         self._lora_active: str = "none"
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
-
     def start(self) -> None:
         """Enter the main probe loop. Blocks until terminated."""
         self._running = True
@@ -92,10 +81,8 @@ class DMADaemonController:
                 _log("WARN", f"probe cycle error: {exc}")
             time.sleep(self.probe_interval_s)
         _log("INFO", "omlxc DMA Daemon stopped")
-
     def update_lora_adapter(self, adapter_id: str) -> None:
         self._lora_active = adapter_id
-
     def _probe_cycle(self) -> None:
         bus_status = self.dma_bus.probe_link()
         if not bus_status.is_connected:
@@ -110,13 +97,11 @@ class DMADaemonController:
         else:
             self._reconnect_attempts = 0
             self._reconnect_delay = RECONNECT_BASE_S
-
         vram_used_mb = self._get_mbp_vram_used_mb()
         vram_pct = vram_used_mb / VRAM_TOTAL_MBP_MB
         kv_spillover = vram_pct >= self.vram_alert_ratio
         if kv_spillover:
             self._trigger_kv_spillover(vram_used_mb)
-
         snapshot = MeshTelemetrySnapshot(
             timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             is_connected=bus_status.is_connected,
@@ -134,7 +119,6 @@ class DMADaemonController:
             lora_active_adapter=self._lora_active,
         )
         self._write_telemetry(snapshot)
-
     def _get_mbp_vram_used_mb(self) -> float:
         try:
             import importlib.util
@@ -146,7 +130,6 @@ class DMADaemonController:
         import math
         t = time.time() % 60
         return VRAM_TOTAL_MBP_MB * 0.60 + VRAM_TOTAL_MBP_MB * 0.08 * math.sin(t * 0.1)
-
     def _trigger_kv_spillover(self, vram_used_mb: float) -> None:
         overflow_mb = vram_used_mb - (VRAM_TOTAL_MBP_MB * self.vram_alert_ratio)
         if overflow_mb <= 0:
@@ -159,29 +142,21 @@ class DMADaemonController:
         )
         _log("INFO", f"KV spillover: {receipt.size_mb:.1f}MB "
                      f"in {receipt.transfer_latency_ms:.3f}ms via {receipt.transport_mode.value}")
-
     def _write_telemetry(self, snapshot: MeshTelemetrySnapshot) -> None:
         state_path = self.ws / STATE_FILE_REL
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(asdict(snapshot), indent=2), encoding="utf-8")
-
     def _handle_signal(self, signum: int, _frame: object) -> None:
         _log("INFO", f"signal {signum} received -- shutting down")
         self._running = False
-
-
 def _detect_workspace_root() -> Path:
     for parent in Path(__file__).resolve().parents:
         if (parent / "docs" / "project-registry.yaml").is_file():
             return parent
     return Path.home() / "Workspace"
-
-
 def _log(level: str, msg: str) -> None:
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     print(f"[{ts}] [{level}] [omlxc-dma-daemon] {msg}", flush=True)
-
-
 def generate_launchd_plist(workspace_root: Path, python_path: str | None = None) -> str:
     py = python_path or sys.executable
     log_dir = workspace_root / "runtime" / "logs"
@@ -227,8 +202,6 @@ def generate_launchd_plist(workspace_root: Path, python_path: str | None = None)
         "</plist>",
     ]
     return "\n".join(lines) + "\n"
-
-
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="omlxc V5.0 Sovereign DMA Daemon")
@@ -247,7 +220,5 @@ def main() -> None:
             print(plist)
         return
     DMADaemonController(workspace_root=ws, probe_interval_s=args.probe_interval).start()
-
-
 if __name__ == "__main__":
     main()

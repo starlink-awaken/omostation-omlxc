@@ -1,20 +1,14 @@
 """
 Symbiotic Draft Head Online Distillation & Alignment (ADR-0435 / omlxc V5.0).
-
 Enables:
 1. Online asynchronous calibration of DFlash 2 / speculative draft heads against Target Model logits.
 2. Domain-specific weight adaptation for personal coding style & DFSQ / GaC governance semantics.
 3. Elevating speculative draft acceptance rate from ~75% to 88%~92%+, accelerating decoding to 110+ tok/s.
 """
-
 from __future__ import annotations
-
 import math
-import time
-from dataclasses import dataclass, field
-from typing import Any, Optional
-
-
+from dataclasses import dataclass,
+from typing import 
 @dataclass(slots=True)
 class DistillationStepResult:
     step_index: int
@@ -25,8 +19,6 @@ class DistillationStepResult:
     alignment_loss: float
     gradient_norm: float
     updated_acceptance_rate: float
-
-
 @dataclass(slots=True)
 class SymbioticDistillerMetrics:
     total_steps_trained: int
@@ -35,13 +27,10 @@ class SymbioticDistillerMetrics:
     target_alignment_score: float  # 0.0 ~ 1.0 (1.0 = perfect match)
     domain_bias_strength: float
     estimated_speedup_ratio: float
-
-
 class SymbioticDraftDistiller:
     """
     Asynchronously calibrates speculative draft projection heads using Target Model's verified logits.
     """
-
     def __init__(
         self,
         learning_rate: float = 1e-4,
@@ -56,7 +45,6 @@ class SymbioticDraftDistiller:
         self.total_steps_trained = 0
         self.total_loss = 0.0
         self.history: list[DistillationStepResult] = []
-
     def compute_kl_divergence(
         self,
         target_probs: list[float],
@@ -73,7 +61,6 @@ class SymbioticDraftDistiller:
             q_safe = max(q, epsilon)
             kl += p_safe * math.log(p_safe / q_safe)
         return max(0.0, kl)
-
     def record_step_and_adapt(
         self,
         target_token_id: int,
@@ -91,26 +78,21 @@ class SymbioticDraftDistiller:
                 accepted += 1
             else:
                 break
-
         # Simulate or compute KL divergence
         if target_probs and draft_probs:
             kl = self.compute_kl_divergence(target_probs, draft_probs)
         else:
             # Synthetic realistic KL based on match
             kl = 0.035 if accepted > 0 else 0.285
-
         alignment_loss = kl * self.kl_weight + (1.0 - (accepted / max(1, len(draft_token_ids)))) * (1.0 - self.kl_weight)
         grad_norm = alignment_loss * self.learning_rate * 100.0
-
         # Update empirical acceptance rate (exponential moving average towards 90%+)
         target_bound = 0.92
         self.current_acceptance_rate = (
             self.current_acceptance_rate * 0.95 + (target_bound if accepted > 0 else 0.70) * 0.05
         )
-
         self.total_steps_trained += 1
         self.total_loss += alignment_loss
-
         result = DistillationStepResult(
             step_index=self.total_steps_trained,
             target_token_id=target_token_id,
@@ -123,7 +105,6 @@ class SymbioticDraftDistiller:
         )
         self.history.append(result)
         return result
-
     def get_metrics(self) -> SymbioticDistillerMetrics:
         """
         Returns full health and distillation metrics.
@@ -133,7 +114,6 @@ class SymbioticDraftDistiller:
         alpha = self.current_acceptance_rate
         n = 8.0  # Speculative tree width
         speedup = 1.0 / max(0.1, (1.0 - alpha + alpha / n))
-
         return SymbioticDistillerMetrics(
             total_steps_trained=self.total_steps_trained,
             cumulative_loss=round(self.total_loss, 4),

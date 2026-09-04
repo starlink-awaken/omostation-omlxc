@@ -1,26 +1,17 @@
 """
 Power & Battery Aware Adaptive Compute Governor (ADR-0205).
-
 Dynamically switches inference throughput profiles based on power source (AC vs Battery):
 - AC Mode: Full 70+ tok/s speculative power, maximum batch size, full concurrency.
 - Battery Mode: Low-power profile, reduced spec steps (40 tok/s), 60% power reduction.
 """
-
 from __future__ import annotations
-
-import os
 import subprocess
 from dataclasses import dataclass
-from enum import Enum, StrEnum
-from typing import Any
-
-
+from enum import StrEnum
 class PowerSource(StrEnum):
     AC = "ac"
     BATTERY = "battery"
     UNKNOWN = "unknown"
-
-
 @dataclass(frozen=True, slots=True)
 class PowerScalingProfile:
     source: PowerSource
@@ -30,13 +21,10 @@ class PowerScalingProfile:
     recommended_model_tier: str
     power_reduction_pct: float
     description: str
-
-
 class PowerProfileGovernor:
     """
     Monitors hardware power status and provides adaptive scaling parameters.
     """
-
     @staticmethod
     def detect_power_source() -> PowerSource:
         """Probes macOS battery status via pmset."""
@@ -49,7 +37,6 @@ class PowerProfileGovernor:
         except Exception:
             pass
         return PowerSource.AC  # Default to AC
-
     @classmethod
     def get_profile(cls, force_source: PowerSource | None = None) -> PowerScalingProfile:
         source = force_source or cls.detect_power_source()

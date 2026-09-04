@@ -1,10 +1,8 @@
 """
 omlxc V5.0 -- Experience Replay Buffer for LoRA Signature Alignment (ADR-0437).
-
 Prevents catastrophic forgetting during online LoRA distillation by maintaining
 a bounded reservoir of historical (instruction, reference) pairs and replaying
 them alongside new signature diff samples at a configurable mixing ratio.
-
 Design:
 - Ring buffer with reservoir sampling (size=2048 by default).
 - Replay mix ratio: 30% replay / 70% fresh (configurable).
@@ -12,15 +10,11 @@ Design:
 - Serialization: JSON Lines to <workspace>/.omo/state/lora-replay-buffer.jsonl
 """
 from __future__ import annotations
-
 import json
 import random
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
-
-
 @dataclass
 class ReplaySample:
     """A single (instruction, output) training pair in the replay buffer."""
@@ -31,8 +25,6 @@ class ReplaySample:
     captured_at: float = field(default_factory=time.time)
     replay_count: int = 0
     importance_weight: float = 1.0
-
-
 @dataclass
 class ReplayBatch:
     """A mixed batch of fresh + replay samples ready for fine-tuning."""
@@ -43,21 +35,16 @@ class ReplayBatch:
     fresh_ratio: float
     replay_ratio: float
     total_samples: int
-
     @property
     def all_samples(self) -> list[ReplaySample]:
         return self.fresh_samples + self.replay_samples
-
-
 class DomainReplayBuffer:
     """Bounded reservoir buffer for a single domain tag."""
-
     def __init__(self, domain: str, max_size: int = 512) -> None:
         self.domain = domain
         self.max_size = max_size
         self._samples: list[ReplaySample] = []
         self._seen_count: int = 0
-
     def add(self, sample: ReplaySample) -> None:
         """Reservoir sampling insertion (Algorithm R)."""
         self._seen_count += 1
@@ -68,7 +55,6 @@ class DomainReplayBuffer:
             k = random.randint(0, self._seen_count - 1)  # noqa: S311
             if k < self.max_size:
                 self._samples[k] = sample
-
     def sample(self, n: int) -> list[ReplaySample]:
         """Sample n items uniformly from the buffer."""
         if not self._samples:
@@ -78,17 +64,13 @@ class DomainReplayBuffer:
         for s in chosen:
             s.replay_count += 1
         return chosen
-
     def __len__(self) -> int:
         return len(self._samples)
-
-
 class ExperienceReplayManager:
     """
     Manages multi-domain experience replay buffers to prevent catastrophic
     forgetting during online LoRA distillation on Mac mini M4.
     """
-
     def __init__(
         self,
         workspace_root: Path | None = None,
@@ -101,10 +83,8 @@ class ExperienceReplayManager:
         self.replay_ratio = replay_ratio
         self.persist_path = self.ws / persist_path_rel
         self._buffers: dict[str, DomainReplayBuffer] = {}
-
         # Try to restore from disk
         self._restore()
-
     def add_sample(
         self,
         instruction: str,
@@ -121,7 +101,6 @@ class ExperienceReplayManager:
         )
         buf.add(sample)
         return sample
-
     def build_training_batch(
         self,
         fresh_samples: list[ReplaySample],
@@ -135,13 +114,10 @@ class ExperienceReplayManager:
         buf = self._get_or_create_buffer(domain)
         n_replay = max(1, int(target_batch_size * self.replay_ratio))
         n_replay = min(n_replay, len(buf))
-
         replay_samples = buf.sample(n_replay) if n_replay > 0 else []
         actual_fresh = fresh_samples[:target_batch_size - len(replay_samples)]
-
         actual_fresh_ratio = len(actual_fresh) / max(1, len(actual_fresh) + len(replay_samples))
         actual_replay_ratio = 1.0 - actual_fresh_ratio
-
         return ReplayBatch(
             batch_id=f"batch-{int(time.time())}",
             domain=domain,
@@ -151,7 +127,6 @@ class ExperienceReplayManager:
             replay_ratio=round(actual_replay_ratio, 3),
             total_samples=len(actual_fresh) + len(replay_samples),
         )
-
     def persist(self) -> int:
         """Serialize all buffers to JSONL for durability across daemon restarts."""
         self.persist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,18 +137,15 @@ class ExperienceReplayManager:
                     f.write(json.dumps(asdict(s), ensure_ascii=False) + "\n")
                     count += 1
         return count
-
     def stats(self) -> dict:
         return {
             domain: {"size": len(buf), "capacity": buf.max_size}
             for domain, buf in self._buffers.items()
         }
-
     def _get_or_create_buffer(self, domain: str) -> DomainReplayBuffer:
         if domain not in self._buffers:
             self._buffers[domain] = DomainReplayBuffer(domain, self.buffer_size_per_domain)
         return self._buffers[domain]
-
     def _restore(self) -> int:
         if not self.persist_path.exists():
             return 0
@@ -191,8 +163,6 @@ class ExperienceReplayManager:
         except Exception:
             pass
         return count
-
-
 def _detect_ws() -> Path:
     for parent in Path(__file__).resolve().parents:
         if (parent / "docs" / "project-registry.yaml").is_file():
