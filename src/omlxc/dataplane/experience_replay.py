@@ -18,7 +18,7 @@ import random
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 @dataclass
@@ -38,14 +38,14 @@ class ReplayBatch:
     """A mixed batch of fresh + replay samples ready for fine-tuning."""
     batch_id: str
     domain: str
-    fresh_samples: List[ReplaySample]
-    replay_samples: List[ReplaySample]
+    fresh_samples: list[ReplaySample]
+    replay_samples: list[ReplaySample]
     fresh_ratio: float
     replay_ratio: float
     total_samples: int
 
     @property
-    def all_samples(self) -> List[ReplaySample]:
+    def all_samples(self) -> list[ReplaySample]:
         return self.fresh_samples + self.replay_samples
 
 
@@ -55,7 +55,7 @@ class DomainReplayBuffer:
     def __init__(self, domain: str, max_size: int = 512) -> None:
         self.domain = domain
         self.max_size = max_size
-        self._samples: List[ReplaySample] = []
+        self._samples: list[ReplaySample] = []
         self._seen_count: int = 0
 
     def add(self, sample: ReplaySample) -> None:
@@ -69,12 +69,12 @@ class DomainReplayBuffer:
             if k < self.max_size:
                 self._samples[k] = sample
 
-    def sample(self, n: int) -> List[ReplaySample]:
+    def sample(self, n: int) -> list[ReplaySample]:
         """Sample n items uniformly from the buffer."""
         if not self._samples:
             return []
         n = min(n, len(self._samples))
-        chosen = random.sample(self._samples, n)  # noqa: S311
+        chosen = random.sample(self._samples, n)
         for s in chosen:
             s.replay_count += 1
         return chosen
@@ -91,7 +91,7 @@ class ExperienceReplayManager:
 
     def __init__(
         self,
-        workspace_root: Optional[Path] = None,
+        workspace_root: Path | None = None,
         buffer_size_per_domain: int = 512,
         replay_ratio: float = 0.30,
         persist_path_rel: str = ".omo/state/lora-replay-buffer.jsonl",
@@ -100,7 +100,7 @@ class ExperienceReplayManager:
         self.buffer_size_per_domain = buffer_size_per_domain
         self.replay_ratio = replay_ratio
         self.persist_path = self.ws / persist_path_rel
-        self._buffers: Dict[str, DomainReplayBuffer] = {}
+        self._buffers: dict[str, DomainReplayBuffer] = {}
 
         # Try to restore from disk
         self._restore()
@@ -124,7 +124,7 @@ class ExperienceReplayManager:
 
     def build_training_batch(
         self,
-        fresh_samples: List[ReplaySample],
+        fresh_samples: list[ReplaySample],
         domain: str = "signature-style",
         target_batch_size: int = 64,
     ) -> ReplayBatch:

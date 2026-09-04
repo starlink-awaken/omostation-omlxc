@@ -17,12 +17,10 @@ import datetime as dt
 import enum
 import fcntl
 import json
-import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 class FailoverState(enum.StrEnum):
@@ -153,7 +151,6 @@ class FailoverController:
           - When in DUAL_LINK and threshold reached: DEGRADED + start local single-node
         """
         with self._lock:
-            now = dt.datetime.now(dt.UTC)
             self._last_heartbeat = snap.timestamp_utc
             if snap.is_connected:
                 self._loss_count = 0

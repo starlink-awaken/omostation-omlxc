@@ -8,17 +8,18 @@ omlxc V3.5 数据面全栈增强单元测试：
 """
 
 import pytest
-from omlxc.dataplane.dflash_backend import DFlashConfig, DFlashBackendManager
+
 from omlxc.dataplane.cluster_partition import HeterogeneousClusterRouter
+from omlxc.dataplane.dflash_backend import DFlashBackendManager, DFlashConfig
 from omlxc.dataplane.power_profile import PowerProfileGovernor, PowerSource
+from omlxc.dataplane.prefix_snapshot import StaticPrefixSnapshotManager
 from omlxc.dataplane.priority_queue import PriorityVRAMScheduler, QueuedInferenceRequest, TaskPriority
 from omlxc.dataplane.vram_budget import (
     VRAMPressureTier,
-    enforce_tiered_headroom_admission,
     enforce_strict_headroom_admission,
+    enforce_tiered_headroom_admission,
     reclaim_metal_memory_pool,
 )
-from omlxc.dataplane.prefix_snapshot import StaticPrefixSnapshotManager
 
 
 def test_dflash_backend_config_and_scaling():

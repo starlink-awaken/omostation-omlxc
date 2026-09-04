@@ -79,7 +79,7 @@ def main() -> int:
     print(f"📊 omlxc 周报 · {datetime.now():%Y-%m-%d} (近 {DAYS} 天, 起 {since})")
     print(f"   快照总数 {len(snaps)} (近{DAYS}天 {len(recent)}) — ", end="")
     if len(recent) < 7:
-        print(f"⚠️ 数据积累中(自 2026-08-24 起), 趋势仅供参考")
+        print("⚠️ 数据积累中(自 2026-08-24 起), 趋势仅供参考")
     else:
         print("数据充分")
 

@@ -1878,8 +1878,8 @@ def fabric_dma(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0437)."""
-    from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
     from omlxc.daemon.dma_daemon import STATE_FILE_REL
+    from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
 
     # Check telemetry file first for live daemon metrics
     ws = Path.cwd()

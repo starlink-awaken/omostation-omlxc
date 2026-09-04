@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """whisper_http.py — y7000p 语音转写 HTTP 服务 (2026-08-25).
 
 POST /asr  body: JSON {"audio_b64": "<base64 of wav/mp3>", "language": "zh"}
@@ -26,7 +25,7 @@ for _sub in ("nvidia/cublas/bin", "nvidia/cudnn/bin", "nvidia/cuda_nvrtc/bin"):
         os.add_dll_directory(_p)
         os.environ["PATH"] = _p + os.pathsep + os.environ["PATH"]
 
-from faster_whisper import WhisperModel  # noqa: E402
+from faster_whisper import WhisperModel
 
 MODEL = None
 
@@ -48,13 +47,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path == "/health":
             self._json(200, {"status": "ok", "model": "tiny"})
         else:
             self._json(404, {"error": "not found"})
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         if self.path != "/asr":
             self._json(404, {"error": "not found"})
             return
@@ -87,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     port = int(os.environ.get("ASR_PORT", "8390"))
     load_model()
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()  # noqa: S104
     return 0
 
 

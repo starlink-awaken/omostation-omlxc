@@ -19,11 +19,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 from omlxc.dataplane.thunderbolt_dma import (
     ThunderboltDMABus,
     ThunderboltTransportMode,
 )
-from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 
 PROBE_INTERVAL_S: float = float(os.environ.get("OMLXC_DMA_PROBE_INTERVAL", "1.0"))
 VRAM_ALERT_RATIO: float = float(os.environ.get("OMLXC_VRAM_ALERT_RATIO", "0.75"))
@@ -57,7 +57,7 @@ class DMADaemonController:
 
     def __init__(
         self,
-        workspace_root: Optional[Path] = None,
+        workspace_root: Path | None = None,
         probe_interval_s: float = PROBE_INTERVAL_S,
         vram_alert_ratio: float = VRAM_ALERT_RATIO,
     ) -> None:
@@ -88,7 +88,7 @@ class DMADaemonController:
         while self._running:
             try:
                 self._probe_cycle()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 _log("WARN", f"probe cycle error: {exc}")
             time.sleep(self.probe_interval_s)
         _log("INFO", "omlxc DMA Daemon stopped")
