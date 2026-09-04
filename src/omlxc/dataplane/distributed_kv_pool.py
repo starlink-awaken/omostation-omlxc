@@ -14,10 +14,10 @@ from __future__ import annotations
 import enum
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
-class KVStorageTier(str, enum.Enum):
+class KVStorageTier(enum.StrEnum):
     LOCAL_UNIFIED_MEMORY = "LOCAL_UNIFIED_MEMORY"
     DISTRIBUTED_MAC_MINI_MEMORY = "DISTRIBUTED_MAC_MINI_MEMORY"
     NVME_SSD_PAGING = "NVME_SSD_PAGING"
@@ -58,7 +58,7 @@ class DistributedKVPoolManager:
     ) -> None:
         self.local_vram_limit_mb = local_vram_limit_mb
         self.mac_mini_memory_limit_mb = mac_mini_memory_limit_mb
-        self.blocks: Dict[str, DistributedKVBlock] = {}
+        self.blocks: dict[str, DistributedKVBlock] = {}
 
     def allocate_or_migrate(
         self,

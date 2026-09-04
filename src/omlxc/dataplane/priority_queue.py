@@ -16,9 +16,9 @@ from enum import IntEnum
 from typing import Any
 
 from omlxc.dataplane.vram_budget import (
+    TieredHeadroomResult,
     VRAMPressureTier,
     enforce_tiered_headroom_admission,
-    TieredHeadroomResult,
 )
 
 

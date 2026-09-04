@@ -92,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104
     parser.add_argument("--port", type=int, default=18700)
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), Handler)

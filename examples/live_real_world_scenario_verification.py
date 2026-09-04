@@ -6,6 +6,7 @@ live_real_world_scenario_verification.py — 真实业务场景全链路验证�
 
 import asyncio
 import time
+
 from omlxc.dataplane.distributed_kv_pool import DistributedKVPoolManager, KVStorageTier
 from omlxc.dataplane.entropy_speculator import EntropyAdaptiveSpeculator
 from omlxc.dataplane.metal_fused_attention import MetalFusedAttentionEngine
@@ -13,12 +14,12 @@ from omlxc.dataplane.predictive_warmup import PredictiveWarmupEngine
 from omlxc.dataplane.semantic_quantizer import SemanticKVQuantizer
 from omlxc.dataplane.streaming_mesh import StreamingMeshPipeline
 from omlxc.dataplane.triage import TriageClassifier
-from omlxc.domain.protocols import ChatMessage
 from omlxc.dataplane.vram_budget import (
     DEFAULT_ARCH_PROFILES,
     VRAMBudgetEstimator,
     enforce_tiered_headroom_admission,
 )
+from omlxc.domain.protocols import ChatMessage
 
 
 async def run_scenario() -> None:
@@ -47,14 +48,14 @@ async def run_scenario() -> None:
     classifier = TriageClassifier()
     triage_res = classifier.classify(messages=(ChatMessage(role="user", content=keystroke_input),))
     print(f" -> 任务复杂度判定: [{triage_res.tier.value.upper()}] (原因: {triage_res.reason})")
-    print(f" -> 算力路由分发: 目标主模型 -> MBP M5 Max (Qwen3.8-27B-DFlash), 辅助记忆 -> Mac mini (BGE-M3)")
+    print(" -> 算力路由分发: 目标主模型 -> MBP M5 Max (Qwen3.8-27B-DFlash), 辅助记忆 -> Mac mini (BGE-M3)")
 
     # ─────────────────────────────────────────────────────────────
     # 场景步骤 3：动态上下文窗口评估与语义敏感混合精度量化
     # ─────────────────────────────────────────────────────────────
     print("\n【阶段 3】上下文窗口动态评估 (65,536 tokens 超长上下文) 与 75% 显存门禁")
     target_tokens = 65536
-    model_meta = DEFAULT_ARCH_PROFILES["qwen-3.8-27b-dflash"]
+    DEFAULT_ARCH_PROFILES["qwen-3.8-27b-dflash"]
     estimator = VRAMBudgetEstimator()
     raw_kv_mb = estimator.estimate_kv_cache_mb("qwen-3.8-27b-dflash", target_tokens)
     admission = enforce_tiered_headroom_admission(
@@ -82,12 +83,12 @@ async def run_scenario() -> None:
     # ─────────────────────────────────────────────────────────────
     print("\n【阶段 4】自适应熵感知动态投机步长与多分支树状验证实测")
     speculator = EntropyAdaptiveSpeculator(min_n=2, max_n=10, base_n_max=7)
-    
+
     # 低熵代码生成段 (模板、类型定义、标准库调用)
     n_code, reason_code = speculator.adapt_speculative_step(entropy=0.15, top1_prob=0.97)
     # 高熵复杂推演段 (架构决策、权衡取舍)
     n_reason, reason_reason = speculator.adapt_speculative_step(entropy=1.75, top1_prob=0.36)
-    
+
     tree_eval = speculator.build_speculative_tree("class DistributedClusterCoordinator:", depth=4, branch_factor=2)
     print(f" -> 代码模板生成区域: 动态步长 n={n_code} | 吞吐: 104.2 tok/s (提速 6.5x)")
     print(f" -> 复杂逻辑推演区域: 动态步长 n={n_reason} | 吞吐: 58.5 tok/s (智能收敛防浪费)")
@@ -105,10 +106,10 @@ async def run_scenario() -> None:
         num_chunks=4,
         chunk_processing_delay_ms=3.0,
     )
-    total_ms = (time.perf_counter() - t_start) * 1000
-    print(f" -> 节点 1 (Y7000P RTX4070): 视觉解析与 OCR 分块提取流")
-    print(f" -> 节点 2 (Mac mini M4 24G): BGE-M3 向量表征与拓扑检索流")
-    print(f" -> 节点 3 (MBP M5 Max 128G): Qwen3.8-27B DFlash 2 决策生成流")
+    (time.perf_counter() - t_start) * 1000
+    print(" -> 节点 1 (Y7000P RTX4070): 视觉解析与 OCR 分块提取流")
+    print(" -> 节点 2 (Mac mini M4 24G): BGE-M3 向量表征与拓扑检索流")
+    print(" -> 节点 3 (MBP M5 Max 128G): Qwen3.8-27B DFlash 2 决策生成流")
     print(f" -> 跨节点首块流式交付延迟 (TTFT): {receipt.first_chunk_ttft_ms} ms (比传统批等待缩减 62.5%)")
     print(f" -> 全链路总耗时: {receipt.total_duration_ms} ms (流式重叠吞吐提升 2.8x)")
 
