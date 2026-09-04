@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/omlxc
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # Test layout
 
 `test_omlxc.py` is the 32-test legacy characterization suite for `bin/omlx`.
