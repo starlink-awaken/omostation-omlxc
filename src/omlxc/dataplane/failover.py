@@ -17,12 +17,10 @@ import datetime as dt
 import enum
 import fcntl
 import json
-import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 class FailoverState(enum.StrEnum):
@@ -80,7 +78,7 @@ class FailoverController:
     _lease: dt.datetime | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _running: bool = False
-    _events: list[FailoverEvent] = field(default_factory=list)
+    _events: list[FailoverEvent] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
     def __post_init__(self) -> None:
         self.workspace_root = Path(self.workspace_root)
@@ -153,8 +151,7 @@ class FailoverController:
           - When in DUAL_LINK and threshold reached: DEGRADED + start local single-node
         """
         with self._lock:
-            dt.datetime.now(dt.UTC)
-            self._last_heartbeat = snap.timestamp_utc
+            self._last_heartbeat = dt.datetime.fromisoformat(snap.timestamp_utc)
             if snap.is_connected:
                 self._loss_count = 0
                 if self._state in (FailoverState.HEARTBEAT_LOSS,
