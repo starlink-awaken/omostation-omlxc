@@ -10,11 +10,11 @@ Coordinates model routing across the 3 physical hardware nodes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 
-class ClusterNodeRole(str, Enum):
+class ClusterNodeRole(StrEnum):
     PRIMARY_BRAIN = "mbp-m5-max-128g"
     MEMORY_WORKER = "mac-mini-m4-24g"
     SENSORY_WORKER = "y7000p-rtx4070-8g"

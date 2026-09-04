@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
-class SemanticTokenCategory(str, enum.Enum):
+class SemanticTokenCategory(enum.StrEnum):
     ATTENTION_SINK = "ATTENTION_SINK"          # First 8 tokens (FP16)
     CRITICAL_SYNTAX = "CRITICAL_SYNTAX"        # Code keywords, vars, digits (INT8)
     STANDARD_CONTEXT = "STANDARD_CONTEXT"      # Dialogue history (INT4)
@@ -49,7 +49,7 @@ class SemanticKVQuantizer:
 
     def generate_semantic_plan(
         self,
-        token_strings: List[str],
+        token_strings: list[str],
         hidden_dim: int = 4096,
         num_layers: int = 32,
     ) -> SemanticQuantizationPlan:

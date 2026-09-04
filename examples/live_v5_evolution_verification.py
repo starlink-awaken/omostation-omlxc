@@ -13,24 +13,25 @@ from __future__ import annotations
 
 import sys
 import time
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from omlxc.dataplane.thunderbolt_dma import (
-    ThunderboltDMABus,
-    ThunderboltTransportMode,
+from omlxc.dataplane.lora_adapter_manager import (
+    LoRAAdapterManager,
+    SignatureDiffDistiller,
 )
 from omlxc.dataplane.symbiotic_distiller import (
     SymbioticDraftDistiller,
 )
+from omlxc.dataplane.thunderbolt_dma import (
+    ThunderboltDMABus,
+    ThunderboltTransportMode,
+)
 from omlxc.dataplane.vit_patch_streamer import (
     CrossAttentionStreamingReceiver,
     ViTPatchStreamer,
-)
-from omlxc.dataplane.lora_adapter_manager import (
-    LoRAAdapterManager,
-    SignatureDiffDistiller,
 )
 
 console = Console()

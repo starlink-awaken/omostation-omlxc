@@ -11,11 +11,11 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 
-class PowerSource(str, Enum):
+class PowerSource(StrEnum):
     AC = "ac"
     BATTERY = "battery"
     UNKNOWN = "unknown"

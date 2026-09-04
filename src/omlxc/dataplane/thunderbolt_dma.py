@@ -12,10 +12,10 @@ from __future__ import annotations
 import enum
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
-class ThunderboltTransportMode(str, enum.Enum):
+class ThunderboltTransportMode(enum.StrEnum):
     THUNDERBOLT_5_DMA = "THUNDERBOLT_5_DMA"
     SHARED_MEMORY_MMAP = "SHARED_MEMORY_MMAP"
     HIGH_SPEED_10GBE_FALLBACK = "HIGH_SPEED_10GBE_FALLBACK"
@@ -81,7 +81,7 @@ class ThunderboltDMABus:
         self.is_connected = True
         self.total_transferred_mb = 0.0
         self.total_blocks_migrated = 0
-        self.latencies: List[float] = []
+        self.latencies: list[float] = []
         self.ring_buffer = P2PSharedMemoryRing()
 
     def probe_link(self) -> ThunderboltBusStatus:

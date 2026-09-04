@@ -3,6 +3,7 @@ Unit tests for Next-Gen omlxc V4.0 Sovereign Compute Engine (ADR-0434).
 """
 
 import asyncio
+
 import pytest
 
 from omlxc.dataplane.distributed_kv_pool import (

@@ -1,5 +1,8 @@
-# -*- coding: utf-8 -*-
-import base64, json, urllib.request, time
+import base64
+import json
+import time
+import urllib.request
+
 b64 = base64.b64encode(open(r"C:\Users\xia\asr_input.wav", "rb").read()).decode()
 req = urllib.request.Request("http://127.0.0.1:8390/asr",
     data=json.dumps({"audio_b64": b64, "language": "en"}).encode(),

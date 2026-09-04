@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,7 +101,7 @@ def warm_system_prefixes(
 
     # Save cache stats for A2 axis
     save_cache_stats(registry)
-    
+
     return {
         "model_id": model_id,
         "warmed_count": len(warmed_names),
@@ -230,7 +231,7 @@ class SemanticCacheRegistry:
 # Persistence for cache statistics
 _CACHE_STATS_PATH = Path.home() / ".omlxc" / "cache_stats.json"
 
-def save_cache_stats(registry: "SemanticCacheRegistry") -> None:
+def save_cache_stats(registry: SemanticCacheRegistry) -> None:
     """Save cache statistics to disk for A2 axis."""
     import json
     import sys

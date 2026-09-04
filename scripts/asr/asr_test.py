@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """asr_test.py — y7000p 语音入口本地验证 (2026-08-25).
 
 管线: SAPI 合成语音 wav → faster-whisper tiny(int8, GPU) 转写 → 比对原文。
