@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 
-class FailoverState(str, enum.Enum):
+class FailoverState(enum.StrEnum):
     DUAL_LINK = "dual_link"
     HEARTBEAT_LOSS = "heartbeat_loss"
     DEGRADED = "degraded"
@@ -39,10 +39,10 @@ class FailoverEvent:
     """Audit log entry. One per state transition or takeover attempt."""
     timestamp_utc: str
     event_type: str  # state_transition | takeover_attempt | heartbeat_loss
-    from_state: Optional[str]
-    to_state: Optional[str]
+    from_state: str | None
+    to_state: str | None
     actor: str  # "local" | "peer:<id>" | "auto"
-    request_id: Optional[str] = None
+    request_id: str | None = None
     note: str = ""
 
 
@@ -76,8 +76,8 @@ class FailoverController:
     # Internal state (not in __init__ — populated by .start())
     _state: FailoverState = FailoverState.DUAL_LINK
     _loss_count: int = 0
-    _last_heartbeat: Optional[dt.datetime] = None
-    _lease: Optional[dt.datetime] = None
+    _last_heartbeat: dt.datetime | None = None
+    _lease: dt.datetime | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _running: bool = False
     _events: list[FailoverEvent] = field(default_factory=list)
@@ -116,7 +116,7 @@ class FailoverController:
         Lease TTL = self.lease_duration_s.
         """
         with self._lock:
-            now = dt.datetime.now(dt.timezone.utc)
+            now = dt.datetime.now(dt.UTC)
             if self._lease is not None and self._lease > now:
                 # Lease held by self or other; refuse
                 self._log_event(FailoverEvent(
@@ -153,7 +153,7 @@ class FailoverController:
           - When in DUAL_LINK and threshold reached: DEGRADED + start local single-node
         """
         with self._lock:
-            now = dt.datetime.now(dt.timezone.utc)
+            now = dt.datetime.now(dt.UTC)
             self._last_heartbeat = snap.timestamp_utc
             if snap.is_connected:
                 self._loss_count = 0
@@ -179,7 +179,7 @@ class FailoverController:
             return
         self._state = new
         self._log_event(FailoverEvent(
-            timestamp_utc=dt.datetime.now(dt.timezone.utc).isoformat(),
+            timestamp_utc=dt.datetime.now(dt.UTC).isoformat(),
             event_type="state_transition",
             from_state=old.value, to_state=new.value,
             actor="auto", note=note,
@@ -221,7 +221,7 @@ class FailoverController:
 
 # ── Convenience constructors ──
 
-def from_dma_daemon_telemetry(telemetry_path: Path) -> Optional[HeartbeatSnapshot]:
+def from_dma_daemon_telemetry(telemetry_path: Path) -> HeartbeatSnapshot | None:
     """Read latest telemetry snapshot from .omo/state/mesh-telemetry.json.
 
     Returns None if file missing or malformed (fail-safe).

@@ -41,13 +41,12 @@ def _load_failover():
     mod = types.ModuleType("failover_under_test")
     mod.__file__ = str(FO_PATH)
     sys.modules["failover_under_test"] = mod
-    exec(compile(source, str(FO_PATH), "exec"), mod.__dict__)
+    exec(compile(source, str(FO_PATH), "exec"), mod.__dict__)  # noqa: S102
     return mod
 
 
 @pytest.fixture
 def setup():
-    import tempfile
     with tempfile.TemporaryDirectory(prefix="t10-119-int-") as tmp:
         workspace = Path(tmp)
         (workspace / ".omo" / "state").mkdir(parents=True, exist_ok=True)
