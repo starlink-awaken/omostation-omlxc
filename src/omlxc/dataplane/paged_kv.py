@@ -105,6 +105,12 @@ class PagedKVMemoryManager:
         if not parent_table:
             raise KeyError(f"Parent sequence {parent_seq_id} not found")
 
+        # BatchB leak guard: re-forking onto an existing child id must release
+        # the previous child table first, otherwise its blocks leak (ref_counts
+        # never decremented). At 128k scale one leaked table = 4096 blocks.
+        if child_seq_id in self._seq_tables:
+            self.free_sequence(child_seq_id)
+
         # Increment reference count on all shared physical blocks
         for b_id in parent_table.physical_blocks:
             self._blocks[b_id].ref_count += 1
@@ -183,4 +189,57 @@ class PagedKVMemoryManager:
             "block_size_tokens": self.block_size_tokens,
             "allocated_memory_mb": round((self.allocated_blocks_count * self.bytes_per_block) / (1024 * 1024), 2),
             "active_sequences": len(self._seq_tables),
+            "fragmentation_ratio": round(self.fragmentation_ratio(), 4),
         }
+
+    def audit_leaks(self) -> list[int]:
+        """
+        BatchB 128k leak detector (diagnostic-only, O(tables + blocks)).
+
+        Recomputes the expected ref_count of every block from live sequence
+        tables and returns ids whose stored state disagrees:
+        - allocated block referenced by zero tables (leaked, never reclaimed)
+        - block whose stored ref_count != number of referencing tables
+        - free-list membership contradicting is_allocated
+        Empty list means no leaks.
+        """
+        expected_ref: dict[int, int] = {}
+        for table in self._seq_tables.values():
+            for b_id in table.physical_blocks:
+                expected_ref[b_id] = expected_ref.get(b_id, 0) + 1
+
+        leaked: list[int] = []
+        for block in self._blocks:
+            exp = expected_ref.get(block.block_id, 0)
+            in_free = block.block_id in self._free_block_ids
+            if exp == 0:
+                if block.is_allocated or block.ref_count != 0 or not in_free:
+                    leaked.append(block.block_id)
+            else:
+                if in_free or not block.is_allocated or block.ref_count != exp:
+                    leaked.append(block.block_id)
+        return sorted(leaked)
+
+    def fragmentation_ratio(self) -> float:
+        """
+        BatchB fragmentation guard (diagnostic-only, O(total_blocks)).
+
+        0.0 = all free blocks form one contiguous run (fresh manager or full
+        reclaim after 128k lifecycle); approaches 1.0 as free space shatters
+        into isolated singletons. Computed as 1 - largest_free_run/free_count.
+        """
+        free_count = len(self._free_block_ids)
+        if free_count == 0:
+            return 0.0
+        if free_count == self.total_blocks:
+            return 0.0
+        free_sorted = sorted(self._free_block_ids)
+        longest = 1
+        run = 1
+        for prev, cur in zip(free_sorted, free_sorted[1:]):
+            if cur == prev + 1:
+                run += 1
+                longest = max(longest, run)
+            else:
+                run = 1
+        return 1.0 - (longest / free_count)
