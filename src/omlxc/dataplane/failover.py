@@ -17,12 +17,10 @@ import datetime as dt
 import enum
 import fcntl
 import json
-import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 class FailoverState(enum.StrEnum):
