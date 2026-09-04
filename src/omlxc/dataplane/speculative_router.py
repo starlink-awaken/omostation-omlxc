@@ -18,10 +18,10 @@ from typing import Any
 
 SCHEMA = "omlxc.dataplane.speculative-router.v1"
 
-TIERS = {
-    "light": {"models": ["qwen3.5-1.5b", "qwen3.5-3b"], "budget_ms": 5, "role": "意图分类+槽位提取"},
-    "mid": {"models": ["qwen2.5-coder:8b", "qwen2.5-coder:14b"], "budget_ms": 800, "role": "格式校验+草稿初筛"},
-    "heavy": {"models": ["qwen3.8-27b", "llama-4-70b"], "budget_ms": 5000, "role": "深度拟稿+政策推演"},
+TIERS: dict[str, dict[str, list[str]]] = {  # type: ignore[assignment]
+    "light": {"models": ["qwen3.5-1.5b", "qwen3.5-3b"]},  # type: ignore[dict-item]
+    "mid": {"models": ["qwen2.5-coder:8b", "qwen2.5-coder:14b"]},  # type: ignore[dict-item]
+    "heavy": {"models": ["qwen3.8-27b", "llama-4-70b"]},  # type: ignore[dict-item]
 }
 
 # 复杂度信号 (升阶触发词) — 语义继承 speculative.py, 三层化细分
@@ -29,7 +29,7 @@ _HEAVY_SIGNALS = ("架构设计", "长远愿景", "博弈推演", "复杂重构"
 _MID_SIGNALS = ("校验", "初筛", "审阅", "格式", "摘要", "翻译", "改写", "多段", "报告", "公文生成")
 _LIGHT_ACTIONS = ("查", "看看", "几点", "天气", "提醒", "记录", "备注", "打开", "关闭", "搜索", "设置")
 
-_SLOT_PATTERNS = {
+_SLOT_PATTERNS: dict[str, str] = {
     "date": r"今天|明天|后天|本周|下周|\d{1,2}月\d{1,2}日|\d{4}-\d{2}-\d{2}",
     "time": r"\d{1,2}[点:：]\d{2}|上午|下午|晚上",
     "doc_type": r"通知|报告|请示|函件|纪要|方案",
@@ -45,7 +45,7 @@ class TieredDecision:
     model: str
     draft_model: str | None  # 投机级联: light 先行
     escalate_reason: str
-    slots: dict[str, str] = field(default_factory=dict)
+    slots: dict[str, str] = field(default_factory=dict)  # pyright: ignore[reportUnknownVariableType]
     latency_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
