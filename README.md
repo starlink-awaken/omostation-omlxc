@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/omlxc
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # omlxc
 
 `omlxc` is a private local compute hub. Version `3.4.0` (ADR-0433) provides a persistent

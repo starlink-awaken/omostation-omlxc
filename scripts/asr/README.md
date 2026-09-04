@@ -1,3 +1,10 @@
+---
+type: derived
+source: projects/omlxc
+owner: governance-team
+last_updated: 2026-09-03
+---
+
 # y7000p 语音转写服务 (asr)
 
 > 2026-08-25 部署。数字大脑语音入口(会议/语音邮件)的算力层。
