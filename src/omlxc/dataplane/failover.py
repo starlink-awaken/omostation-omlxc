@@ -153,7 +153,6 @@ class FailoverController:
           - When in DUAL_LINK and threshold reached: DEGRADED + start local single-node
         """
         with self._lock:
-            now = dt.datetime.now(dt.UTC)
             self._last_heartbeat = snap.timestamp_utc
             if snap.is_connected:
                 self._loss_count = 0
