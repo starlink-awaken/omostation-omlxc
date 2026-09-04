@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-WS_ROOT = Path(__file__).resolve().parents[4]  # tests/integration/ → omlxc/ → projects/ → omo
-FO_PATH = WS_ROOT / "projects" / "omlxc" / "src" / "omlxc" / "dataplane" / "failover.py"
+WS_ROOT = Path(__file__).resolve().parents[2]  # tests/integration/ → omlxc/
+FO_PATH = WS_ROOT / "src" / "omlxc" / "dataplane" / "failover.py"
 TELEMETRY_PATH_REL = ".omo/state/mesh-telemetry.json"
 
 
