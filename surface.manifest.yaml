@@ -1,0 +1,89 @@
+schema_version: surface-manifest/v1
+extension_id: omlxc-compute
+domain: compute
+title: "omlxc 异构主权算力织网"
+description: "Apple Silicon MPS / CUDA 显存监控、DFlash 2 扩散投机解码与 Paged KV 块内存管理"
+refresh_interval_ms: 5000
+cards:
+  - id: omlxc-memory-kpi
+    type: metric_grid
+    title: "MPS / GPU 显存治理状态"
+    static_data:
+      metrics:
+        - label: "统一显存使用率"
+          value: "64.2%"
+          unit: "GB"
+          trend: "neutral"
+          status: "normal"
+          warn_threshold: 75.0
+          description: "41.1 / 64.0 GB (75% 警戒梯级安全)"
+        - label: "DFlash 2 解码吞吐"
+          value: "148.5"
+          unit: "tok/s"
+          trend: "up"
+          status: "normal"
+          description: "投机加速比 2.42x (接收率 83.1%)"
+        - label: "Paged KV 缓存命中率"
+          value: "89.4%"
+          trend: "up"
+          status: "normal"
+          description: "Radix 前缀共享 12.8 GB 显存"
+        - label: "活跃推理会话"
+          value: "3"
+          unit: "路"
+          status: "normal"
+          description: "BosCompute / AetherForge 承载"
+  - id: omlxc-paged-kv-table
+    type: data_table
+    title: "Radix 前缀树与 Paged KV 块分布"
+    static_data:
+      columns:
+        - key: session_id
+          label: "会话 ID"
+        - key: model
+          label: "加载模型"
+        - key: kv_blocks
+          label: "KV Blocks"
+        - key: prefix_hit
+          label: "前缀复用率"
+        - key: status
+          label: "推理状态"
+      rows:
+        - session_id: "sess-af-01"
+          model: "Qwen2.5-Coder-32B-Instruct"
+          kv_blocks: "1,420 / 2,048"
+          prefix_hit: "92.4%"
+          status: "RUNNING"
+        - session_id: "sess-af-02"
+          model: "DeepSeek-R1-Distill-Qwen-14B"
+          kv_blocks: "640 / 1,024"
+          prefix_hit: "85.1%"
+          status: "IDLE"
+        - session_id: "sess-dflash-draft"
+          model: "DFlash-Draft-0.5B"
+          kv_blocks: "128 / 512"
+          prefix_hit: "99.0%"
+          status: "STREAMING"
+  - id: omlxc-compute-actions
+    type: action_panel
+    title: "算力织网与显存治理操作"
+    static_data:
+      description: "主权算力动态编排与显存释放"
+      actions:
+        - id: trigger-kv-eviction
+          label: "淘汰冷区 Paged KV 缓存"
+          variant: "primary"
+          payload:
+            target: "paged_kv"
+            mode: "lru_evict"
+        - id: warm-prefix-cache
+          label: "预热 System Prompt 前缀树"
+          variant: "secondary"
+          payload:
+            target: "radix_tree"
+        - id: emergency-quant-step
+          label: "降阶触发自适应 4-bit 量化"
+          variant: "danger"
+          confirm: true
+          payload:
+            level: "int4_fallback"
