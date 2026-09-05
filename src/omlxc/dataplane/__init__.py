@@ -49,7 +49,7 @@ from .models import (
     RerankResult,
 )
 from .orchestrator import DataPlaneOrchestrator
-from .paged_kv import PagedKVMemoryManager, PhysicalBlock, SequenceBlockTable
+from .paged_kv import PagedKVCache, PagedKVMemoryManager, PhysicalBlock, SequenceBlockTable
 from .power_profile import PowerProfileGovernor, PowerScalingProfile
 from .predictive_warmup import (
     PredictiveWarmupEngine,
@@ -72,6 +72,11 @@ from .streaming_mesh import (
 )
 from .telemetry import BoundRouteTelemetry, RouteTelemetryRecorder, TelemetrySink
 from .thermal import NodeEnvironmentalState, PowerSource, ThermalGuard, ThermalPressureLevel
+from .tree_context import (
+    ContradictionPair,
+    QueryResult,
+    TreeContextIndex,
+)
 from .triage import ComplexityTier, TriageClassifier, TriageResult
 from .vram_budget import (
     CompactionResult,
@@ -132,6 +137,7 @@ __all__ = [
     "NodePlacementDecision",
     "NodeRole",
     "NodeStatus",
+    "PagedKVCache",
     "PagedKVMemoryManager",
     "PhysicalBlock",
     "PipelineExecutionReceipt",
@@ -168,6 +174,9 @@ __all__ = [
     "StreamingPipelineReceipt",
     "TaskPriority",
     "TelemetrySink",
+    "TreeContextIndex",
+    "ContradictionPair",
+    "QueryResult",
     "ThermalGuard",
     "ThermalPressureLevel",
     "TieredHeadroomResult",
