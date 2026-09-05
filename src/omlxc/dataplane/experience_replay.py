@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import random
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -191,6 +192,182 @@ class ExperienceReplayManager:
         except Exception:
             pass
         return count
+
+
+DEFAULT_ADAPTER_NAME = "adapter-xiamingxing-v1"
+ADAPTER_DIR_REL = ".omo/state/lora-adapters"
+DISTILL_MIN_SAMPLES = 8
+
+
+@dataclass
+class DistillJob:
+    """A LoRA distillation dispatch record (BET-Y1Q3-T10-105).
+
+    status semantics (honest states, never simulated):
+    - dispatched: local MLX training ran to completion, adapter produced.
+    - routed: no local MLX; a mesh target node was decided for the job.
+    - needs_mlx: neither local MLX nor a mesh peer is available.
+    - insufficient_samples: domain buffer below DISTILL_MIN_SAMPLES.
+    """
+    job_id: str
+    domain: str
+    epochs: int
+    sample_count: int
+    status: str
+    target_node: str = ""
+    target_endpoint: str = ""
+    adapter_path: str = ""
+    detail: str = ""
+
+
+def adapter_dir(workspace_root: Optional[Path] = None, name: str = DEFAULT_ADAPTER_NAME) -> Path:
+    ws = workspace_root or _detect_ws()
+    return ws / ADAPTER_DIR_REL / name
+
+
+def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Optional[Path] = None) -> dict:
+    """Inspect a trained adapter on disk without loading model weights."""
+    path = adapter_dir(workspace_root, name)
+    if not path.is_dir():
+        return {"name": name, "exists": False, "path": str(path)}
+    files = sorted(p.name for p in path.iterdir() if p.is_file())
+    return {
+        "name": name,
+        "exists": True,
+        "path": str(path),
+        "files": files,
+        "size_bytes": sum(p.stat().st_size for p in path.rglob("*") if p.is_file()),
+    }
+
+
+def _mlx_lm_available() -> bool:
+    try:
+        import importlib.util
+        return importlib.util.find_spec("mlx_lm") is not None
+    except Exception:
+        return False
+
+
+def _rouge_l_f1(hypothesis: str, reference: str) -> float:
+    """Lightweight ROUGE-L (LCS-based F1) with no external dependency."""
+    hyp_tokens, ref_tokens = hypothesis.split(), reference.split()
+    if not hyp_tokens or not ref_tokens:
+        return 0.0
+    lcs = [[0] * (len(ref_tokens) + 1) for _ in range(len(hyp_tokens) + 1)]
+    for i, h in enumerate(hyp_tokens, 1):
+        for j, r in enumerate(ref_tokens, 1):
+            lcs[i][j] = lcs[i - 1][j - 1] + 1 if h == r else max(lcs[i - 1][j], lcs[i][j - 1])
+    lcs_len = lcs[-1][-1]
+    precision = lcs_len / len(hyp_tokens)
+    recall = lcs_len / len(ref_tokens)
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
+def evaluate_alignment(
+    reference: str,
+    base_output: str,
+    adapter_output: str,
+) -> dict:
+    """Score adapter vs base outputs against a user-signed reference (ROUGE-L)."""
+    base_score = _rouge_l_f1(base_output, reference)
+    adapter_score = _rouge_l_f1(adapter_output, reference)
+    improvement = 0.0 if base_score == 0 else (adapter_score - base_score) / base_score
+    return {
+        "base_score": round(base_score, 4),
+        "adapter_score": round(adapter_score, 4),
+        "relative_improvement": round(improvement, 4),
+        "target_improvement": 0.25,
+        "meets_target": improvement >= 0.25,
+    }
+
+
+def dispatch_distill(
+    manager: "ExperienceReplayManager",
+    domain: str = "signature-style",
+    epochs: int = 3,
+    model: str = "qwen3.8-27b",
+    adapter_name: str = DEFAULT_ADAPTER_NAME,
+    router: Optional[object] = None,
+) -> DistillJob:
+    """Dispatch a real LoRA distillation job for a domain buffer.
+
+    Order of preference: local MLX training > mesh roaming target > honest
+    failure. Never fabricates a completed job.
+    """
+    buf = manager._get_or_create_buffer(domain)
+    job_id = f"ft-job-{int(time.time())}"
+    if len(buf) < DISTILL_MIN_SAMPLES:
+        return DistillJob(
+            job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+            status="insufficient_samples",
+            detail=f"domain '{domain}' has {len(buf)} samples, need >= {DISTILL_MIN_SAMPLES}",
+        )
+
+    out_dir = adapter_dir(manager.ws, adapter_name)
+    if _mlx_lm_available():
+        batch = manager.build_training_batch(
+            fresh_samples=list(buf._samples)[-8:], domain=domain,
+        )
+        data_path = out_dir.parent / f"{domain}-train-{int(time.time())}.jsonl"
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        with data_path.open("w", encoding="utf-8") as f:
+            for s in batch.all_samples:
+                f.write(json.dumps({
+                    "messages": [
+                        {"role": "user", "content": s.instruction},
+                        {"role": "assistant", "content": s.output},
+                    ]
+                }, ensure_ascii=False) + "\n")
+        cmd = [
+            "python3", "-m", "mlx_lm", "lora", "--train",
+            "--model", model,
+            "--data", str(data_path),
+            "--adapter-path", str(out_dir),
+            "--iters", str(max(epochs * 100, 300)),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        data_path.unlink(missing_ok=True)
+        if proc.returncode == 0:
+            return DistillJob(
+                job_id=job_id, domain=domain, epochs=epochs,
+                sample_count=len(batch.all_samples), status="dispatched",
+                target_node="local", adapter_path=str(out_dir),
+                detail="mlx_lm.lora training completed",
+            )
+        return DistillJob(
+            job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+            status="needs_mlx",
+            detail=f"mlx_lm.lora exited {proc.returncode}: {proc.stderr[-200:]}",
+        )
+
+    # No local MLX: decide a mesh roaming target (e.g. Mac mini M4) for the job.
+    if router is not None:
+        try:
+            decision = router.route_job(
+                job_id=job_id, model_id=model,
+                estimated_vram_gb=8.0,
+            )
+            return DistillJob(
+                job_id=job_id, domain=domain, epochs=epochs,
+                sample_count=len(buf), status="routed",
+                target_node=decision.target_node_id,
+                target_endpoint=decision.target_endpoint,
+                adapter_path=str(out_dir),
+                detail=decision.decision_reason,
+            )
+        except Exception as exc:
+            return DistillJob(
+                job_id=job_id, domain=domain, epochs=epochs,
+                sample_count=len(buf), status="needs_mlx",
+                detail=f"mesh routing failed: {exc}",
+            )
+    return DistillJob(
+        job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+        status="needs_mlx",
+        detail="mlx_lm not installed locally and no mesh discovery engine provided",
+    )
 
 
 def _detect_ws() -> Path:
