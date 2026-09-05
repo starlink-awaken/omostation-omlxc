@@ -184,3 +184,30 @@ def test_evaluate_alignment_zero_base_guard() -> None:
     result = evaluate_alignment("some reference text", base_output="", adapter_output="x")
     assert result["relative_improvement"] == 0.0
     assert result["meets_target"] is False
+
+
+def test_evaluate_alignment_chinese_persona_style() -> None:
+    ref = "原则同意测评方案。请信息技术处牵头，会同医政处、基卫处组成专班，明确测评五级乙等指标拆解清单；务必于9月25日17:00前完成首轮42项自评差距分析；核心业务系统改造成本控制在预算内，严禁未经安全审计直连。夏明星 2026-09-05"
+    base = "关于区域全民健康信息平台互联互通成熟度测评方案的拟办意见：按照市局文件要求，认真领会精神，建议组织各科室和相关单位进一步研讨，结合我委实际情况稳步推进测评准备工作，待时机成熟时组织申报。"
+    adapter = "原则同意测评方案。请信息技术处牵头，会同医政处、基卫处组成专班，明确测评五级乙等指标拆解清单；于9月25日17:00前完成首轮自评差距分析；改造成本控制在预算内，严禁未经安全审计直连。夏明星 2026-09-05"
+    result = evaluate_alignment(ref, base_output=base, adapter_output=adapter)
+    assert result["adapter_score"] > result["base_score"]
+    assert result["relative_improvement"] >= 0.25
+    assert result["meets_target"] is True
+
+
+def test_experience_replay_restore_with_task_id(tmp_path: Path) -> None:
+    mgr = ExperienceReplayManager(workspace_root=tmp_path)
+    s1 = mgr.add_sample("inst1", "out1", domain="document-review")
+    s1.task_id = "BET-Y1Q3-T10-105"
+    s2 = mgr.add_sample("inst2", "out2", domain="tech-architecture")
+    s2.task_id = "BET-Y1Q3-T10-105"
+    mgr.persist()
+
+    mgr2 = ExperienceReplayManager(workspace_root=tmp_path)
+    stats = mgr2.stats()
+    assert "document-review" in stats
+    assert "tech-architecture" in stats
+    assert stats["document-review"]["size"] == 1
+    assert stats["tech-architecture"]["size"] == 1
+
