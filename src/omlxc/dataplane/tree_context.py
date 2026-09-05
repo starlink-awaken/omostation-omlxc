@@ -1,19 +1,9 @@
-"""omlxc V5.0 — Hierarchical Tree Context over PagedKV (BET-Y2Q1-T3-04).
+"""
+Tree-structured Document Context Index & Contradiction Detector (ADR-0203).
 
-Builds a section-tree index over very long documents (0.5M+ chars) and pages
-leaf text through the existing :class:`PagedKVMemoryManager` block allocator,
-so that full-document memory stays bounded while chapter-level queries answer
-in milliseconds. Pure-Python structural indexing: no LLM, no vector store.
-
-Design:
-- Heading-structure split (Markdown ``#`` and Chinese official ``一、/（一）/1.``
-  patterns) into a hierarchical node tree with byte ranges into the source text.
-- Every leaf node's text is registered with the paged allocator; body text is
-  materialized lazily from the byte range on demand.
-- ``detect_conflicts`` cross-checks numeric/date assertions that share a claim
-  key across different sections (e.g. same policy clause quoting different
-  amounts) — structural contradiction candidates, not semantic judgement.
-- ``ttft_probe`` measures first-locate latency after build (target <= 50ms).
+Builds a hierarchical tree from long-form documents (500K+ chars) partitioned by
+heading levels, supporting sub-50ms semantic queries and cross-node contradiction
+detection for policy/architecture documents.
 """
 
 from __future__ import annotations
@@ -24,249 +14,326 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 
-# ---------------------------------------------------------------------------
-# heading patterns: Markdown ATX + Chinese official document numbering
-_HEADING_PATTERNS: list[tuple[re.Pattern[str], int]] = [
-    (re.compile(r"^(#{1,6})\s+(\S.*)$"), None),  # markdown, level = hash count
-    (re.compile(r"^(第[一二三四五六七八九十百]+[章节篇][\s、.:：].*)$"), 2),
-    (re.compile(r"^([一二三四五六七八九十]+、\S.*)$"), 2),
-    (re.compile(r"^(（[一二三四五六七八九十]+）\S.*)$"), 3),
-    (re.compile(r"^(\d{1,2}\.\d{1,2}(?:\.\d{1,2})*\s+\S.*)$"), 3),
-]
+@dataclass(slots=True)
+class TreeNode:
+    """A node in the hierarchical document tree."""
 
-_CLAIM_VALUE = re.compile(
-    r"(?P<key>[\u4e00-\u9fffA-Za-z_]{2,24})"
-    r"(?:率|金额|费用|预算|天数|时限|人次|床位数|覆盖|指标)?"
-    r"[:：为不超超过约达到]\s*"
-    r"(?P<value>\d+(?:\.\d+)?)\s*"
-    r"(?P<unit>%|万元|亿元|天|个工作日|小时|分钟|人|张|家|GB|TB|ms|秒)?"
-)
+    node_id: str
+    heading_path: list[str]
+    level: int  # heading depth (1=h1, 2=h2, etc.)
+    text: str  # full text under this heading
+    summary: str  # condensed summary (<200 tokens approx)
+    chunk_start: int  # char offset in original doc
+    chunk_end: int
+    embedding: list[float] = field(default_factory=list)
+    children: list[str] = field(default_factory=list)  # node_ids of children
+    parent_id: str | None = None
+    entities: set[str] = field(default_factory=set)  # extracted key entities
 
 
 @dataclass(slots=True)
-class TreeContextNode:
-    """A node in the document section tree."""
+class QueryResult:
+    """Result of a semantic query against the tree."""
 
     node_id: str
-    title: str
-    level: int
-    byte_start: int
-    byte_end: int
-    parent_id: str | None = None
-    children: list[str] = field(default_factory=list)
-    seq_id: str = ""  # paged-allocator sequence covering this node's text
-
-    @property
-    def is_leaf(self) -> bool:
-        return not self.children
+    heading_path: list[str]
+    score: float  # similarity score
+    text_snippet: str
+    summary: str
 
 
-def _detect_heading(line: str) -> tuple[int, str] | None:
-    stripped = line.strip()
-    if not stripped:
-        return None
-    for pattern, fixed_level in _HEADING_PATTERNS:
-        m = pattern.match(stripped)
-        if m:
-            level = fixed_level if fixed_level is not None else len(m.group(1))
-            return level, m.group(2) if fixed_level is None else m.group(1)
-    return None
+@dataclass(slots=True)
+class ContradictionPair:
+    """A detected contradiction between two document sections."""
+
+    node_a_id: str
+    heading_a: list[str]
+    node_b_id: str
+    heading_b: list[str]
+    score: float  # conflict severity (0-1)
+    entity_overlap: set[str]
+    description: str
+
+
+def _simple_tokenize(text: str) -> list[str]:
+    """Whitespace + punctuation tokenizer for lightweight embedding."""
+    return re.findall(r"\w+", text.lower())
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _extract_key_entities(text: str, min_length: int = 3) -> set[str]:
+    """Extract capitalized multi-word entities and technical terms."""
+    entities: set[str] = set()
+    # Match capitalized word sequences (proper nouns / titles)
+    for match in re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b", text):
+        entities.add(match.group(1))
+    # Match technical identifiers (kebab-case, snake_case, dotted)
+    for match in re.finditer(r"\b([a-zA-Z][a-zA-Z0-9_-]*(?:\.[a-zA-Z][a-zA-Z0-9_-]*)+)\b", text):
+        entities.add(match.group(1))
+    # Filter short entities
+    return {e for e in entities if len(e) >= min_length}
+
+
+def _simple_embedding(text: str, dim: int = 128) -> list[float]:
+    """
+    Deterministic bag-of-words embedding (no ML dependency).
+    Uses hash-based projection for lightweight semantic representation.
+    """
+    tokens = _simple_tokenize(text)
+    vec = [0.0] * dim
+    for token in tokens:
+        h = int(hashlib.md5(token.encode()).hexdigest(), 16)
+        idx = h % dim
+        vec[idx] += 1.0
+    # Normalize
+    norm = sum(x * x for x in vec) ** 0.5
+    if norm > 0:
+        vec = [x / norm for x in vec]
+    return vec
 
 
 class TreeContextIndex:
-    """Hierarchical section tree with PagedKV-backed lazy leaf storage."""
+    """
+    Hierarchical document context index for ultra-long documents.
+
+    Partitions a document by heading structure into a tree, computes lightweight
+    embeddings per node, and supports fast semantic queries and contradiction
+    detection.
+    """
 
     def __init__(
         self,
-        memory: PagedKVMemoryManager | None = None,
-        memory_budget_mb: float = 2048.0,
-        source_name: str = "doc",
+        summary_max_chars: int = 800,
+        embedding_dim: int = 128,
     ) -> None:
-        self.memory = memory or PagedKVMemoryManager(total_vram_mb=memory_budget_mb)
-        self.source_name = source_name
-        self.roots: list[TreeContextNode] = []
-        self.nodes: dict[str, TreeContextNode] = {}
-        self._text: str = ""
-        self._last_ttft_ms: float = -1.0
+        self.summary_max_chars = summary_max_chars
+        self.embedding_dim = embedding_dim
+        self._nodes: dict[str, TreeNode] = {}
+        self._root_ids: list[str] = []
+        self._doc_text: str = ""
+        self._build_time_ms: float = 0.0
 
-    # -- build ----------------------------------------------------------
+    @property
+    def node_count(self) -> int:
+        return len(self._nodes)
 
-    def build(self, text: str) -> TreeContextIndex:
-        self._text = text
-        self.roots = []
-        self.nodes = {}
-        lines = text.split("\n")
-        offset = 0
-        stack: list[TreeContextNode] = []
-        counter = 0
+    def build(self, document: str) -> None:
+        """Parse a document into a hierarchical tree of indexed nodes."""
+        self._doc_text = document
+        self._nodes.clear()
+        self._root_ids.clear()
+        start = time.monotonic()
 
-        def _new_node(title: str, level: int, byte_start: int) -> TreeContextNode:
-            nonlocal counter
-            counter += 1
-            nid = f"{self.source_name}-n{counter:05d}"
-            node = TreeContextNode(
-                node_id=nid,
-                title=title[:120],
-                level=level,
-                byte_start=byte_start,
-                byte_end=byte_start,
-            )
-            self.nodes[nid] = node
-            return node
+        # Split by markdown-style headings
+        lines = document.split("\n")
+        heading_stack: list[tuple[int, str]] = []  # (level, heading_text)
+        current_chunks: list[tuple[int, str, int, int]] = []  # (level, heading, start, end)
+        char_offset = 0
+        node_counter = 0
 
-        root = _new_node(f"<doc:{self.source_name}>", 0, 0)
-        self.roots.append(root)
-        stack.append(root)
+        # Phase 1: Parse headings and build raw chunks
+        raw_sections: list[tuple[int, str, str, int, int]] = []  # (level, heading, text, start, end)
+        section_start = 0
+        current_heading = "root"
+        current_level = 0
 
         for line in lines:
-            line_len = len(line) + 1
-            heading = _detect_heading(line)
-            if heading:
-                level, title = heading
-                node = _new_node(title, level, offset)
-                while stack and stack[-1].level >= level:
-                    finished = stack.pop()
-                    finished.byte_end = offset
-                stack[-1].children.append(node.node_id)
-                node.parent_id = stack[-1].node_id
-                stack.append(node)
-            offset += line_len
+            heading_match = re.match(r"^(#{1,6})\s+(.+)$", line)
+            if heading_match:
+                # Save previous section
+                if section_start < char_offset:
+                    section_text = document[section_start:char_offset].strip()
+                    if section_text:
+                        raw_sections.append((current_level, current_heading, section_text, section_start, char_offset))
 
-        while stack:
-            finished = stack.pop()
-            finished.byte_end = min(offset, finished.byte_end or offset)
+                level = len(heading_match.group(1))
+                current_heading = heading_match.group(2).strip()
+                current_level = level
+                section_start = char_offset
 
-        # close remaining ranges and register paged sequences for leaves
-        for node in self.nodes.values():
-            if node.byte_end < node.byte_start:
-                node.byte_end = offset
-        leaves = [n for n in self.nodes.values() if n.is_leaf]
-        for leaf in leaves:
-            leaf_text = self._text[leaf.byte_start : leaf.byte_end]
-            est_tokens = max(1, len(leaf_text) // 2)
-            leaf.seq_id = f"{leaf.node_id}"
-            try:
-                self.memory.allocate_sequence(leaf.seq_id, est_tokens)
-            except Exception:
-                leaf.seq_id = ""  # allocator full: leaf stays lazily served by range
-        return self
+            char_offset += len(line) + 1  # +1 for \n
 
-    # -- access ----------------------------------------------------------
+        # Save last section
+        if section_start < len(document):
+            section_text = document[section_start:].strip()
+            if section_text:
+                raw_sections.append((current_level, current_heading, section_text, section_start, len(document)))
 
-    def _node_by_id(self, node_id: str) -> TreeContextNode | None:
-        return self.nodes.get(node_id)
+        # If no headings found, treat the whole document as a single section
+        if not raw_sections:
+            raw_sections = [(1, "Document", document[:self.summary_max_chars * 4], 0, len(document))]
 
-    def node_text(self, node_id: str) -> str:
-        node = self._node_by_id(node_id)
-        if node is None:
-            return ""
-        start = node.byte_start
-        end = node.byte_end
-        if node.parent_id:
-            parent = self.nodes[node.parent_id]
-            child_starts = [
-                self.nodes[c].byte_start for c in parent.children if c != node_id
-            ]
-            inner = [s for s in child_starts if start < s < end]
-            if inner:
-                end = min(inner)
-        return self._text[start:end]
+        # Phase 2: Build tree nodes
+        for level, heading, text, start, end in raw_sections:
+            node_id = f"node-{node_counter}"
+            node_counter += 1
+            heading_path = [h for _, h in heading_stack if _ < level] + [heading]
+            summary = text[:self.summary_max_chars] + ("..." if len(text) > self.summary_max_chars else "")
+            embedding = _simple_embedding(text, self.embedding_dim)
+            entities = _extract_key_entities(text)
 
-    def locate(self, query: str, limit: int = 10) -> list[TreeContextNode]:
-        """Title/keyword match over the section tree (no body scan)."""
-        q = query.strip().lower()
-        if not q:
-            return []
-        hits = [
-            n
-            for n in self.nodes.values()
-            if q in n.title.lower() or q in (self.node_text(n.node_id)[:0] or "")
-        ]
-        # keyword fallback inside leaf bodies is bounded to title-hit misses
-        if not hits:
-            hits = [
-                n
-                for n in self.nodes.values()
-                if n.is_leaf and q in self.leaf_excerpt(n.node_id, 4096).lower()
-            ]
-        hits.sort(key=lambda n: (n.level, n.byte_start))
-        return hits[:limit]
-
-    def leaf_excerpt(self, node_id: str, max_chars: int = 4096) -> str:
-        node = self._node_by_id(node_id)
-        if node is None:
-            return ""
-        return self._text[node.byte_start : node.byte_end][:max_chars]
-
-    def stats(self) -> dict[str, Any]:
-        leaves = [n for n in self.nodes.values() if n.is_leaf]
-        return {
-            "total_nodes": len(self.nodes),
-            "leaf_nodes": len(leaves),
-            "doc_chars": len(self._text),
-            "paged_blocks_allocated": self.memory.allocated_blocks_count,
-            "paged_utilization": round(self.memory.memory_utilization_ratio, 4),
-            "last_ttft_ms": round(self._last_ttft_ms, 2),
-        }
-
-    # -- conflict detection ------------------------------------------------
-
-    def _collect_claims(self, node: TreeContextNode) -> list[dict[str, Any]]:
-        body = self.leaf_excerpt(node.node_id)
-        claims = []
-        for m in _CLAIM_VALUE.finditer(body):
-            claims.append(
-                {
-                    "key": m.group("key"),
-                    "value": m.group("value"),
-                    "unit": m.group("unit") or "",
-                    "node_id": node.node_id,
-                    "section": node.title,
-                }
+            node = TreeNode(
+                node_id=node_id,
+                heading_path=heading_path,
+                level=level,
+                text=text,
+                summary=summary,
+                chunk_start=start,
+                chunk_end=end,
+                embedding=embedding,
+                entities=entities,
             )
-        return claims
+            self._nodes[node_id] = node
 
-    def detect_conflicts(self) -> list[dict[str, Any]]:
-        """Cross-section numeric assertion comparison (same claim key+unit,
-        different values => contradiction candidate)."""
-        claims: list[dict[str, Any]] = []
-        for node in self.nodes.values():
-            if node.is_leaf:
-                claims.extend(self._collect_claims(node))
-        by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        for c in claims:
-            by_key.setdefault((c["key"], c["unit"]), []).append(c)
-        conflicts = []
-        for (key, unit), group in sorted(by_key.items()):
-            values = {c["value"] for c in group}
-            if len(values) > 1:
-                conflicts.append(
-                    {
-                        "claim_key": key,
-                        "unit": unit,
-                        "values": sorted(values),
-                        "occurrences": [
-                            {k: c[k] for k in ("value", "node_id", "section")}
-                            for c in group
-                        ],
-                    }
+            # Update heading stack
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            heading_stack.append((level, heading))
+
+        # Phase 3: Wire parent-child relationships
+        stack: list[str] = []
+        for node_id, node in self._nodes.items():
+            # Pop stack until we find a parent with lower level
+            while stack and self._nodes[stack[-1]].level >= node.level:
+                stack.pop()
+            if stack:
+                parent_id = stack[-1]
+                node.parent_id = parent_id
+                self._nodes[parent_id].children.append(node_id)
+            else:
+                self._root_ids.append(node_id)
+            stack.append(node_id)
+
+        self._build_time_ms = (time.monotonic() - start) * 1000
+
+    def query(self, text: str, top_k: int = 5) -> list[QueryResult]:
+        """
+        Semantic search: find the most relevant tree nodes for a query.
+        Target: <50ms on CPU for 500K-char documents.
+        """
+        query_embedding = _simple_embedding(text, self.embedding_dim)
+        results: list[QueryResult] = []
+
+        for node in self._nodes.values():
+            score = _cosine_similarity(query_embedding, node.embedding)
+            # Boost score for entity overlap
+            query_entities = _extract_key_entities(text)
+            if query_entities and node.entities:
+                overlap = query_entities & node.entities
+                score += 0.1 * len(overlap) / max(len(query_entities), 1)
+
+            if score > 0.01:  # minimum threshold
+                snippet_start = max(0, node.chunk_start)
+                snippet_end = min(len(self._doc_text), node.chunk_start + 500)
+                results.append(QueryResult(
+                    node_id=node.node_id,
+                    heading_path=node.heading_path,
+                    score=score,
+                    text_snippet=self._doc_text[snippet_start:snippet_end],
+                    summary=node.summary,
+                ))
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:top_k]
+
+    def find_contradictions(
+        self,
+        similarity_threshold: float = 0.3,
+        entity_overlap_ratio: float = 0.5,
+    ) -> list[ContradictionPair]:
+        """
+        Detect potential contradictions between document sections.
+
+        A pair is flagged as contradictory when:
+        1. Embedding cosine similarity is LOW (< threshold) — sections discuss similar
+           topics but diverge in content.
+        2. Entity overlap is HIGH (> ratio) — sections reference the same entities.
+        This combination suggests the sections disagree about the same topic.
+        """
+        nodes = list(self._nodes.values())
+        contradictions: list[ContradictionPair] = []
+        seen_pairs: set[tuple[str, str]] = set()
+
+        for i, node_a in enumerate(nodes):
+            for node_b in nodes[i + 1 :]:
+                if node_a.level != node_b.level:
+                    continue  # only compare same-level sections
+                if not node_a.entities or not node_b.entities:
+                    continue
+
+                # Entity overlap check
+                common_entities = node_a.entities & node_b.entities
+                overlap_count = len(common_entities)
+                max_entities = max(len(node_a.entities), len(node_b.entities))
+                if max_entities == 0:
+                    continue
+                overlap_ratio = overlap_count / max_entities
+
+                if overlap_ratio < entity_overlap_ratio:
+                    continue
+
+                # Low similarity on same-entity sections = potential contradiction
+                sim = _cosine_similarity(node_a.embedding, node_b.embedding)
+                if sim >= similarity_threshold:
+                    continue  # too similar, probably consistent
+
+                pair_key = tuple(sorted([node_a.node_id, node_b.node_id]))
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                # Extract negation keywords as contradiction evidence
+                negation_words = {"不", "不得", "禁止", "废止", "不再", "not", "shall not", "prohibited", "repealed"}
+                a_negations = {w for w in negation_words if w in node_a.text.lower()}
+                b_negations = {w for w in negation_words if w in node_b.text.lower()}
+
+                severity = 1.0 - sim
+                description = (
+                    f"Sections share {overlap_count} entities but diverge in content "
+                    f"(similarity={sim:.3f}). "
+                    f"Negation signals: A={a_negations or 'none'}, B={b_negations or 'none'}."
                 )
-        conflicts.sort(key=lambda c: -len(c["occurrences"]))
-        return conflicts
 
-    # -- ttft ---------------------------------------------------------------
+                contradictions.append(ContradictionPair(
+                    node_a_id=node_a.node_id,
+                    heading_a=node_a.heading_path,
+                    node_b_id=node_b.node_id,
+                    heading_b=node_b.heading_path,
+                    score=severity,
+                    entity_overlap=common_entities,
+                    description=description,
+                ))
 
-    def ttft_probe(self, probe_query: str | None = None) -> float:
-        """First-locate latency after build, in ms (target <= 50ms)."""
-        q = probe_query or (self.nodes[self.roots[0].children[0]].title if self.roots and self.roots[0].children else "概")
-        t0 = time.perf_counter()
-        self.locate(q)
-        self._last_ttft_ms = (time.perf_counter() - t0) * 1000
-        return self._last_ttft_ms
+        contradictions.sort(key=lambda c: c.score, reverse=True)
+        return contradictions
 
+    def get_tree_stats(self) -> dict[str, Any]:
+        """Return tree statistics for verification."""
+        total_nodes = len(self._nodes)
+        max_depth = max((n.level for n in self._nodes.values()), default=0)
+        total_text_chars = sum(len(n.text) for n in self._nodes.values())
+        total_entities = set()
+        for n in self._nodes.values():
+            total_entities |= n.entities
 
-def fingerprint_text(text: str) -> str:
-    """Stable short digest for manifest/audit use."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        return {
+            "total_nodes": total_nodes,
+            "root_count": len(self._root_ids),
+            "max_depth": max_depth,
+            "total_text_chars": total_text_chars,
+            "unique_entities": len(total_entities),
+            "build_time_ms": round(self._build_time_ms, 2),
+            "avg_entities_per_node": round(len(total_entities) / max(total_nodes, 1), 1),
+        }
