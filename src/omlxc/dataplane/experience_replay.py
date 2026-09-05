@@ -32,6 +32,7 @@ class ReplaySample:
     captured_at: float = field(default_factory=time.time)
     replay_count: int = 0
     importance_weight: float = 1.0
+    task_id: str = ""
 
 
 @dataclass
@@ -186,7 +187,9 @@ class ExperienceReplayManager:
                     if not line:
                         continue
                     data = json.loads(line)
-                    sample = ReplaySample(**data)
+                    valid_keys = getattr(ReplaySample, "__dataclass_fields__", {})
+                    filtered = {k: v for k, v in data.items() if k in valid_keys} if valid_keys else data
+                    sample = ReplaySample(**filtered)
                     self._get_or_create_buffer(sample.domain).add(sample)
                     count += 1
         except Exception:
@@ -248,9 +251,19 @@ def _mlx_lm_available() -> bool:
         return False
 
 
+def _tokenize_text(text: str) -> list[str]:
+    import re
+    tokens: list[str] = []
+    for piece in re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9_\.\-]+|[^\s\w]", text):
+        if piece.strip():
+            tokens.append(piece)
+    return tokens
+
+
 def _rouge_l_f1(hypothesis: str, reference: str) -> float:
-    """Lightweight ROUGE-L (LCS-based F1) with no external dependency."""
-    hyp_tokens, ref_tokens = hypothesis.split(), reference.split()
+    """Lightweight ROUGE-L (LCS-based F1) supporting multilingual and Chinese text."""
+    hyp_tokens = _tokenize_text(hypothesis)
+    ref_tokens = _tokenize_text(reference)
     if not hyp_tokens or not ref_tokens:
         return 0.0
     lcs = [[0] * (len(ref_tokens) + 1) for _ in range(len(hyp_tokens) + 1)]
