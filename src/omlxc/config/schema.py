@@ -48,6 +48,9 @@ class StorageConfig(ConfigModel):
 class TailscaleConfig(ConfigModel):
     executable: Path
     snapshot_ttl_seconds: int = Field(default=30, ge=1, le=300)
+    # Homebrew's tailscaled doesn't listen on the CLI's compiled-in default path;
+    # a /var/run symlink is a common workaround but doesn't survive a reboot.
+    socket_path: Path | None = None
 
     @field_validator("executable", mode="before")
     @classmethod
@@ -59,6 +62,18 @@ class TailscaleConfig(ConfigModel):
     def absolute_executable(cls, value: Path) -> Path:
         if not value.is_absolute():
             raise ValueError("Tailscale executable must use an absolute path")
+        return value
+
+    @field_validator("socket_path", mode="before")
+    @classmethod
+    def parse_socket_path(cls, value: object) -> object:
+        return Path(value) if isinstance(value, str) else value
+
+    @field_validator("socket_path")
+    @classmethod
+    def absolute_socket_path(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("Tailscale socket path must use an absolute path")
         return value
 
 

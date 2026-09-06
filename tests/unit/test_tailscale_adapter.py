@@ -133,6 +133,30 @@ async def test_snapshot_uses_fixed_argv_and_returns_only_allowlisted_nodes() -> 
 
 
 @pytest.mark.asyncio
+async def test_socket_path_is_a_global_flag_preceding_the_subcommand() -> None:
+    """A Homebrew tailscaled doesn't listen on the CLI's compiled-in default
+    socket path. --socket is a global flag: `status --json --socket=X` is
+    rejected by the real binary, it must come before the subcommand.
+    """
+    calls: list[tuple[tuple[str, ...], float]] = []
+    adapter = _adapter(
+        policies=(_policy(),),
+        socket_path=Path("/var/run/tailscale.brew.sock"),
+        process_runner=_runner_for(_document(), calls=calls),
+    )
+
+    await adapter.snapshot()
+
+    assert _TRUSTED_EXECUTABLE is not None
+    assert calls == [
+        (
+            (str(_TRUSTED_EXECUTABLE.resolve()), "--socket=/var/run/tailscale.brew.sock", "status", "--json"),
+            10.0,
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_valid_offline_peer_is_visible_but_authorization_is_typed_offline() -> None:
     adapter = _adapter(
         policies=(_policy(),),

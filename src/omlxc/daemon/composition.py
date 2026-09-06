@@ -1498,6 +1498,7 @@ def build_configured_tailscale(config: AppConfig) -> TailscaleAdapter | None:
         return TailscaleAdapter(
             policies=policies,
             tailscale_executable=config.tailscale.executable,
+            socket_path=config.tailscale.socket_path,
             snapshot_ttl_seconds=config.tailscale.snapshot_ttl_seconds,
         )
     except ValueError:
