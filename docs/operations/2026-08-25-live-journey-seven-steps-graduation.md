@@ -13,7 +13,7 @@
 ### 根因 (journey-runner.py:567)
 ```python
 states = {s["name"]: s for s in spec.get("states", [])}
-transitions = spec.get("transitions", [])   # 只读顶层
+transitions = spec.get("transitions", [])  # 只读顶层
 ```
 admin-notification-workflow.yaml 是 9 份 journey-spec 里唯一的
 **嵌套 schema 异类**(transitions 内嵌在 states[].transitions)。

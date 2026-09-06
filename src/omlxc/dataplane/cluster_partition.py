@@ -57,7 +57,6 @@ class HeterogeneousClusterRouter:
             affinity_reason="Dedicated Reranker pipeline on M4 Neural Engine.",
             fallback_node_id="mbp-m5-max-128g",
         ),
-
         # 2. Vision, OCR, and CUDA Speech -> Offload to Y7000P RTX4070 (CUDA specialized compute)
         "vision": NodePlacementDecision(
             target_node_id="y7000p-rtx4070-8g",
@@ -80,7 +79,6 @@ class HeterogeneousClusterRouter:
             affinity_reason="CUDA Tensor Core acceleration for visual processing.",
             fallback_node_id="mbp-m5-max-128g",
         ),
-
         # 3. Heavy Reasoning, Coding, and DFlash 2 Speculation -> MBP M5 Max 128G (Unified Bandwidth SOTA)
         "qwen-3.8-27b": NodePlacementDecision(
             target_node_id="mbp-m5-max-128g",

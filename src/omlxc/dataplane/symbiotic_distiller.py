@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 class DistillationStepResult:
     step_index: int
     target_token_id: int
-    draft_token_ids: List[int]
+    draft_token_ids: list[int]
     accepted_tokens: int
     kl_divergence: float
     alignment_loss: float
@@ -55,12 +55,12 @@ class SymbioticDraftDistiller:
         self.current_acceptance_rate = baseline_acceptance_rate
         self.total_steps_trained = 0
         self.total_loss = 0.0
-        self.history: List[DistillationStepResult] = []
+        self.history: list[DistillationStepResult] = []
 
     def compute_kl_divergence(
         self,
-        target_probs: List[float],
-        draft_probs: List[float],
+        target_probs: list[float],
+        draft_probs: list[float],
         epsilon: float = 1e-8,
     ) -> float:
         """
@@ -77,9 +77,9 @@ class SymbioticDraftDistiller:
     def record_step_and_adapt(
         self,
         target_token_id: int,
-        draft_token_ids: List[int],
-        target_probs: Optional[List[float]] = None,
-        draft_probs: Optional[List[float]] = None,
+        draft_token_ids: list[int],
+        target_probs: list[float] | None = None,
+        draft_probs: list[float] | None = None,
     ) -> DistillationStepResult:
         """
         Records a decoding step and computes asynchronous online distillation gradients.
@@ -99,7 +99,9 @@ class SymbioticDraftDistiller:
             # Synthetic realistic KL based on match
             kl = 0.035 if accepted > 0 else 0.285
 
-        alignment_loss = kl * self.kl_weight + (1.0 - (accepted / max(1, len(draft_token_ids)))) * (1.0 - self.kl_weight)
+        alignment_loss = kl * self.kl_weight + (1.0 - (accepted / max(1, len(draft_token_ids)))) * (
+            1.0 - self.kl_weight
+        )
         grad_norm = alignment_loss * self.learning_rate * 100.0
 
         # Update empirical acceptance rate (exponential moving average towards 90%+)
@@ -128,7 +130,7 @@ class SymbioticDraftDistiller:
         """
         Returns full health and distillation metrics.
         """
-        avg_loss = (self.total_loss / max(1, self.total_steps_trained)) if self.total_steps_trained > 0 else 0.0
+        (self.total_loss / max(1, self.total_steps_trained)) if self.total_steps_trained > 0 else 0.0
         # Speedup ratio based on acceptance rate: S = 1 / (1 - alpha + alpha/n)
         alpha = self.current_acceptance_rate
         n = 8.0  # Speculative tree width

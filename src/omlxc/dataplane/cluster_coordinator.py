@@ -16,9 +16,10 @@ Features:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class NodeStatus(str, Enum):
@@ -46,7 +47,7 @@ class ClusterNodeInfo:
     consecutive_successes: int = 0
     ewma_latency_ms: float = 20.0
     last_heartbeat: float = field(default_factory=time.time)
-    preferred_capabilities: List[str] = field(default_factory=list)
+    preferred_capabilities: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +70,10 @@ class PipelineStage:
 @dataclass
 class PipelineExecutionReceipt:
     stages_completed: int
-    participating_nodes: List[str]
+    participating_nodes: list[str]
     total_duration_ms: float
     all_success: bool
-    results: Dict[str, Any]
+    results: dict[str, Any]
 
 
 class MultiNodeClusterCoordinator:
@@ -83,7 +84,7 @@ class MultiNodeClusterCoordinator:
     def __init__(self, failure_threshold: int = 3, recovery_threshold: int = 2) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_threshold = recovery_threshold
-        self.nodes: Dict[str, ClusterNodeInfo] = {
+        self.nodes: dict[str, ClusterNodeInfo] = {
             "mbp-m5-max-128g": ClusterNodeInfo(
                 node_id="mbp-m5-max-128g",
                 name="MacBook Pro · M5 Max 128G",
@@ -116,7 +117,7 @@ class MultiNodeClusterCoordinator:
             ),
         }
 
-    def record_heartbeat(self, node_id: str, success: bool, latency_ms: Optional[float] = None) -> None:
+    def record_heartbeat(self, node_id: str, success: bool, latency_ms: float | None = None) -> None:
         if node_id not in self.nodes:
             return
         node = self.nodes[node_id]
@@ -139,12 +140,12 @@ class MultiNodeClusterCoordinator:
             else:
                 node.status = NodeStatus.DEGRADED
 
-    def select_node_for_task(self, capability: str, model_id: Optional[str] = None) -> RoutingResult:
+    def select_node_for_task(self, capability: str, model_id: str | None = None) -> RoutingResult:
         """
         Determines the optimal placement node for a task with automatic health failover.
         """
         norm_cap = capability.lower()
-        
+
         # Determine primary target based on capability
         if any(kw in norm_cap for kw in ["embed", "rerank", "vector", "memory"]):
             primary_id = "mac-mini-m4-24g"
@@ -183,7 +184,7 @@ class MultiNodeClusterCoordinator:
             estimated_latency_ms=fallback_node.ewma_latency_ms,
         )
 
-    def execute_cross_node_pipeline(self, stages: List[PipelineStage]) -> PipelineExecutionReceipt:
+    def execute_cross_node_pipeline(self, stages: list[PipelineStage]) -> PipelineExecutionReceipt:
         """
         Simulates end-to-end collaborative cross-node execution across stages.
         """
@@ -228,7 +229,7 @@ class MultiNodeClusterCoordinator:
             results=results,
         )
 
-    def get_cluster_status_report(self) -> Dict[str, Any]:
+    def get_cluster_status_report(self) -> dict[str, Any]:
         """
         Generates a comprehensive snapshot of cluster nodes, health, roles, and latency.
         """

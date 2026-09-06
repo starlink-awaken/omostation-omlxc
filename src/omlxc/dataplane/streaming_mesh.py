@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(slots=True)
@@ -34,10 +35,10 @@ class StreamingPipelineReceipt:
     total_chunks: int
     total_duration_ms: float
     first_chunk_ttft_ms: float
-    stages: List[str]
-    nodes_involved: List[str]
+    stages: list[str]
+    nodes_involved: list[str]
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class StreamingMeshPipeline:
@@ -46,7 +47,7 @@ class StreamingMeshPipeline:
     """
 
     def __init__(self) -> None:
-        self.active_streams: Dict[str, StreamingPipelineReceipt] = {}
+        self.active_streams: dict[str, StreamingPipelineReceipt] = {}
 
     async def execute_streaming_pipeline(
         self,
@@ -60,14 +61,14 @@ class StreamingMeshPipeline:
         Stage 1: Y7000P OCR -> Stage 2: Mac mini Embedding -> Stage 3: MBP Speculative Generation
         """
         start_time = time.time()
-        first_chunk_time: Optional[float] = None
+        first_chunk_time: float | None = None
         stages = ["y7000p_vision_ocr", "mac_mini_embed", "mbp_dflash2_generate"]
         nodes_involved = ["node-y7000p-rtx4070", "node-macmini-m4", "node-mbp-m5max"]
 
         processed_chunks = 0
 
         for chunk_idx in range(num_chunks):
-            chunk_start = time.time()
+            time.time()
             # Simulate low-latency chunk streaming
             await asyncio.sleep(chunk_processing_delay_ms / 1000.0)
             chunk_end = time.time()

@@ -171,7 +171,9 @@ class TriageClassifier:
         )
 
 
-def resolve_tier_target_model(tier: ComplexityTier, default_fast: str = "coding-fast", default_deep: str = "qwen-3.8-27b") -> str:
+def resolve_tier_target_model(
+    tier: ComplexityTier, default_fast: str = "coding-fast", default_deep: str = "qwen-3.8-27b"
+) -> str:
     """
     Resolves ComplexityTier to physical model identifier.
     FAST -> 9B high throughput (45+ tok/s)

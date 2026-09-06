@@ -11,6 +11,7 @@ Design:
 - Domain-keyed sharding: each domain tag maintains its own sub-buffer.
 - Serialization: JSON Lines to <workspace>/.omo/state/lora-replay-buffer.jsonl
 """
+
 from __future__ import annotations
 
 import json
@@ -25,6 +26,7 @@ from typing import Dict, List, Optional
 @dataclass
 class ReplaySample:
     """A single (instruction, output) training pair in the replay buffer."""
+
     sample_id: str
     domain: str
     instruction: str
@@ -38,16 +40,17 @@ class ReplaySample:
 @dataclass
 class ReplayBatch:
     """A mixed batch of fresh + replay samples ready for fine-tuning."""
+
     batch_id: str
     domain: str
-    fresh_samples: List[ReplaySample]
-    replay_samples: List[ReplaySample]
+    fresh_samples: list[ReplaySample]
+    replay_samples: list[ReplaySample]
     fresh_ratio: float
     replay_ratio: float
     total_samples: int
 
     @property
-    def all_samples(self) -> List[ReplaySample]:
+    def all_samples(self) -> list[ReplaySample]:
         return self.fresh_samples + self.replay_samples
 
 
@@ -57,7 +60,7 @@ class DomainReplayBuffer:
     def __init__(self, domain: str, max_size: int = 512) -> None:
         self.domain = domain
         self.max_size = max_size
-        self._samples: List[ReplaySample] = []
+        self._samples: list[ReplaySample] = []
         self._seen_count: int = 0
 
     def add(self, sample: ReplaySample) -> None:
@@ -67,16 +70,16 @@ class DomainReplayBuffer:
             self._samples.append(sample)
         else:
             # Reservoir: replace random slot with decreasing probability
-            k = random.randint(0, self._seen_count - 1)  # noqa: S311
+            k = random.randint(0, self._seen_count - 1)  # noqa: S311 — 水塘抽样, 统计用途非加密
             if k < self.max_size:
                 self._samples[k] = sample
 
-    def sample(self, n: int) -> List[ReplaySample]:
+    def sample(self, n: int) -> list[ReplaySample]:
         """Sample n items uniformly from the buffer."""
         if not self._samples:
             return []
         n = min(n, len(self._samples))
-        chosen = random.sample(self._samples, n)  # noqa: S311
+        chosen = random.sample(self._samples, n)
         for s in chosen:
             s.replay_count += 1
         return chosen
@@ -93,7 +96,7 @@ class ExperienceReplayManager:
 
     def __init__(
         self,
-        workspace_root: Optional[Path] = None,
+        workspace_root: Path | None = None,
         buffer_size_per_domain: int = 512,
         replay_ratio: float = 0.30,
         persist_path_rel: str = ".omo/state/lora-replay-buffer.jsonl",
@@ -102,7 +105,7 @@ class ExperienceReplayManager:
         self.buffer_size_per_domain = buffer_size_per_domain
         self.replay_ratio = replay_ratio
         self.persist_path = self.ws / persist_path_rel
-        self._buffers: Dict[str, DomainReplayBuffer] = {}
+        self._buffers: dict[str, DomainReplayBuffer] = {}
 
         # Try to restore from disk
         self._restore()
@@ -126,7 +129,7 @@ class ExperienceReplayManager:
 
     def build_training_batch(
         self,
-        fresh_samples: List[ReplaySample],
+        fresh_samples: list[ReplaySample],
         domain: str = "signature-style",
         target_batch_size: int = 64,
     ) -> ReplayBatch:
@@ -139,7 +142,7 @@ class ExperienceReplayManager:
         n_replay = min(n_replay, len(buf))
 
         replay_samples = buf.sample(n_replay) if n_replay > 0 else []
-        actual_fresh = fresh_samples[:target_batch_size - len(replay_samples)]
+        actual_fresh = fresh_samples[: target_batch_size - len(replay_samples)]
 
         actual_fresh_ratio = len(actual_fresh) / max(1, len(actual_fresh) + len(replay_samples))
         actual_replay_ratio = 1.0 - actual_fresh_ratio
@@ -166,10 +169,7 @@ class ExperienceReplayManager:
         return count
 
     def stats(self) -> dict:
-        return {
-            domain: {"size": len(buf), "capacity": buf.max_size}
-            for domain, buf in self._buffers.items()
-        }
+        return {domain: {"size": len(buf), "capacity": buf.max_size} for domain, buf in self._buffers.items()}
 
     def _get_or_create_buffer(self, domain: str) -> DomainReplayBuffer:
         if domain not in self._buffers:
@@ -212,6 +212,7 @@ class DistillJob:
     - needs_mlx: neither local MLX nor a mesh peer is available.
     - insufficient_samples: domain buffer below DISTILL_MIN_SAMPLES.
     """
+
     job_id: str
     domain: str
     epochs: int
@@ -223,12 +224,12 @@ class DistillJob:
     detail: str = ""
 
 
-def adapter_dir(workspace_root: Optional[Path] = None, name: str = DEFAULT_ADAPTER_NAME) -> Path:
+def adapter_dir(workspace_root: Path | None = None, name: str = DEFAULT_ADAPTER_NAME) -> Path:
     ws = workspace_root or _detect_ws()
     return ws / ADAPTER_DIR_REL / name
 
 
-def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Optional[Path] = None) -> dict:
+def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Path | None = None) -> dict:
     """Inspect a trained adapter on disk without loading model weights."""
     path = adapter_dir(workspace_root, name)
     if not path.is_dir():
@@ -246,6 +247,7 @@ def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Optional[Pa
 def _mlx_lm_available() -> bool:
     try:
         import importlib.util
+
         return importlib.util.find_spec("mlx_lm") is not None
     except Exception:
         return False
@@ -253,6 +255,7 @@ def _mlx_lm_available() -> bool:
 
 def _tokenize_text(text: str) -> list[str]:
     import re
+
     tokens: list[str] = []
     for piece in re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9_\.\-]+|[^\s\w]", text):
         if piece.strip():
@@ -297,12 +300,12 @@ def evaluate_alignment(
 
 
 def dispatch_distill(
-    manager: "ExperienceReplayManager",
+    manager: ExperienceReplayManager,
     domain: str = "signature-style",
     epochs: int = 3,
     model: str = "qwen3.8-27b",
     adapter_name: str = DEFAULT_ADAPTER_NAME,
-    router: Optional[object] = None,
+    router: object | None = None,
 ) -> DistillJob:
     """Dispatch a real LoRA distillation job for a domain buffer.
 
@@ -313,7 +316,10 @@ def dispatch_distill(
     job_id = f"ft-job-{int(time.time())}"
     if len(buf) < DISTILL_MIN_SAMPLES:
         return DistillJob(
-            job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+            job_id=job_id,
+            domain=domain,
+            epochs=epochs,
+            sample_count=len(buf),
             status="insufficient_samples",
             detail=f"domain '{domain}' has {len(buf)} samples, need >= {DISTILL_MIN_SAMPLES}",
         )
@@ -321,36 +327,58 @@ def dispatch_distill(
     out_dir = adapter_dir(manager.ws, adapter_name)
     if _mlx_lm_available():
         batch = manager.build_training_batch(
-            fresh_samples=list(buf._samples)[-8:], domain=domain,
+            fresh_samples=list(buf._samples)[-8:],
+            domain=domain,
         )
         data_path = out_dir.parent / f"{domain}-train-{int(time.time())}.jsonl"
         out_dir.parent.mkdir(parents=True, exist_ok=True)
         with data_path.open("w", encoding="utf-8") as f:
             for s in batch.all_samples:
-                f.write(json.dumps({
-                    "messages": [
-                        {"role": "user", "content": s.instruction},
-                        {"role": "assistant", "content": s.output},
-                    ]
-                }, ensure_ascii=False) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "messages": [
+                                {"role": "user", "content": s.instruction},
+                                {"role": "assistant", "content": s.output},
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
         cmd = [
-            "python3", "-m", "mlx_lm", "lora", "--train",
-            "--model", model,
-            "--data", str(data_path),
-            "--adapter-path", str(out_dir),
-            "--iters", str(max(epochs * 100, 300)),
+            "python3",
+            "-m",
+            "mlx_lm",
+            "lora",
+            "--train",
+            "--model",
+            model,
+            "--data",
+            str(data_path),
+            "--adapter-path",
+            str(out_dir),
+            "--iters",
+            str(max(epochs * 100, 300)),
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         data_path.unlink(missing_ok=True)
         if proc.returncode == 0:
             return DistillJob(
-                job_id=job_id, domain=domain, epochs=epochs,
-                sample_count=len(batch.all_samples), status="dispatched",
-                target_node="local", adapter_path=str(out_dir),
+                job_id=job_id,
+                domain=domain,
+                epochs=epochs,
+                sample_count=len(batch.all_samples),
+                status="dispatched",
+                target_node="local",
+                adapter_path=str(out_dir),
                 detail="mlx_lm.lora training completed",
             )
         return DistillJob(
-            job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+            job_id=job_id,
+            domain=domain,
+            epochs=epochs,
+            sample_count=len(buf),
             status="needs_mlx",
             detail=f"mlx_lm.lora exited {proc.returncode}: {proc.stderr[-200:]}",
         )
@@ -359,12 +387,16 @@ def dispatch_distill(
     if router is not None:
         try:
             decision = router.route_job(
-                job_id=job_id, model_id=model,
+                job_id=job_id,
+                model_id=model,
                 estimated_vram_gb=8.0,
             )
             return DistillJob(
-                job_id=job_id, domain=domain, epochs=epochs,
-                sample_count=len(buf), status="routed",
+                job_id=job_id,
+                domain=domain,
+                epochs=epochs,
+                sample_count=len(buf),
+                status="routed",
                 target_node=decision.target_node_id,
                 target_endpoint=decision.target_endpoint,
                 adapter_path=str(out_dir),
@@ -372,12 +404,18 @@ def dispatch_distill(
             )
         except Exception as exc:
             return DistillJob(
-                job_id=job_id, domain=domain, epochs=epochs,
-                sample_count=len(buf), status="needs_mlx",
+                job_id=job_id,
+                domain=domain,
+                epochs=epochs,
+                sample_count=len(buf),
+                status="needs_mlx",
                 detail=f"mesh routing failed: {exc}",
             )
     return DistillJob(
-        job_id=job_id, domain=domain, epochs=epochs, sample_count=len(buf),
+        job_id=job_id,
+        domain=domain,
+        epochs=epochs,
+        sample_count=len(buf),
         status="needs_mlx",
         detail="mlx_lm not installed locally and no mesh discovery engine provided",
     )

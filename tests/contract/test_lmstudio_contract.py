@@ -181,9 +181,7 @@ class TestLmStudioContract(BackendAdapterContract):
         assert "-c" in argv and "16384" in argv, f"受控加载必须带 -c 16384: {argv}"
 
     @pytest.mark.asyncio
-    async def test_busy_probe_model_does_not_kill_entire_discover(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_busy_probe_model_does_not_kill_entire_discover(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """busy-probe 回归: 探针模型正忙于长生成时, probe chat 排队超时
         只损失 generation_ready, 目录/加载状态照常返回 — 不得掐死整个
         discover 导致全部 placement 判死 (2026-08-22 实测 30/37↔0/15 摆动)。"""

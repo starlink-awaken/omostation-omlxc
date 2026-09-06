@@ -152,6 +152,7 @@ class OpenAIChatBody(ApiModel):
     def _stop_str_to_tuple(cls, value: object) -> object:
         # OpenAI API 允许 stop 为裸 str 或 list — 统一为 tuple
         return (value,) if isinstance(value, str) else value
+
     top_p: float = Field(default=1.0, ge=0, le=1)
     n: int = Field(default=1, ge=1, le=1)  # 仅支持单候选
     presence_penalty: float = Field(default=0.0, ge=-2, le=2)

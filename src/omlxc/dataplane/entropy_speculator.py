@@ -21,7 +21,7 @@ class SpeculativeTreeNode:
     confidence: float
     entropy: float
     depth: int
-    children: List[SpeculativeTreeNode] = field(default_factory=list)
+    children: list[SpeculativeTreeNode] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -29,7 +29,7 @@ class SpeculativeTreeResult:
     root: SpeculativeTreeNode
     total_candidate_tokens: int
     tree_depth: int
-    paths: List[List[int]]
+    paths: list[list[int]]
     tree_mask_size: int
     estimated_speedup: float
     recommended_n_max: int
@@ -54,7 +54,7 @@ class EntropyAdaptiveSpeculator:
         self.entropy_low_threshold = entropy_low_threshold
         self.entropy_high_threshold = entropy_high_threshold
 
-    def calculate_entropy(self, probabilities: List[float]) -> float:
+    def calculate_entropy(self, probabilities: list[float]) -> float:
         """Calculates Shannon entropy in nats."""
         if not probabilities:
             return 0.0
@@ -64,7 +64,7 @@ class EntropyAdaptiveSpeculator:
                 entropy -= p * math.log(p)
         return float(entropy)
 
-    def adapt_speculative_step(self, entropy: float, top1_prob: float) -> Tuple[int, str]:
+    def adapt_speculative_step(self, entropy: float, top1_prob: float) -> tuple[int, str]:
         """
         Dynamically scales speculative step n.
         Low entropy (<0.35) & high confidence -> Boost to n=10 (100+ tok/s).
@@ -74,9 +74,11 @@ class EntropyAdaptiveSpeculator:
             return self.max_n, "MAX_THROUGHPUT_BOOST (Low entropy deterministic syntax/template)"
         if entropy >= self.entropy_high_threshold or top1_prob < 0.40:
             return self.min_n, "CONSERVATIVE_THROTTLING (High entropy creative/divergent branch)"
-        
+
         # Linear interpolation between min_n and max_n
-        norm_entropy = (self.entropy_high_threshold - entropy) / (self.entropy_high_threshold - self.entropy_low_threshold)
+        norm_entropy = (self.entropy_high_threshold - entropy) / (
+            self.entropy_high_threshold - self.entropy_low_threshold
+        )
         norm_entropy = max(0.0, min(1.0, norm_entropy))
         adapted_n = int(self.min_n + norm_entropy * (self.max_n - self.min_n))
         return adapted_n, f"DYNAMIC_ENTROPY_ADAPTED (Entropy={entropy:.3f}, Top1={top1_prob:.2f})"
@@ -92,13 +94,13 @@ class EntropyAdaptiveSpeculator:
         """
         root = SpeculativeTreeNode(
             token_id=0,
-            token_str="[ROOT]",
+            token_str="[ROOT]",  # noqa: S106 — LLM 词元字面量, 不是凭据
             confidence=1.0,
             entropy=0.1,
             depth=0,
         )
 
-        all_paths: List[List[int]] = []
+        all_paths: list[list[int]] = []
         total_tokens = 0
 
         # Sample code/syntax tokens for deterministic paths
@@ -109,7 +111,7 @@ class EntropyAdaptiveSpeculator:
             ["if", " ", "status", " ", "==", " ", "'OK':"],
         ]
 
-        def _expand(node: SpeculativeTreeNode, current_path: List[int], d: int) -> None:
+        def _expand(node: SpeculativeTreeNode, current_path: list[int], d: int) -> None:
             nonlocal total_tokens
             if d >= depth:
                 all_paths.append(list(current_path))

@@ -63,7 +63,7 @@ class LoRAAdapterManager:
     """
 
     def __init__(self) -> None:
-        self.adapters: Dict[str, LoRAAdapterMetadata] = {}
+        self.adapters: dict[str, LoRAAdapterMetadata] = {}
         self._init_default_adapters()
 
     def _init_default_adapters(self) -> None:
@@ -128,7 +128,7 @@ class LoRAAdapterManager:
             vram_overhead_mb=target.size_mb,
         )
 
-    def auto_route_adapter(self, intent_text: str) -> Optional[LoRAMountReceipt]:
+    def auto_route_adapter(self, intent_text: str) -> LoRAMountReceipt | None:
         """
         Automatically selects and mounts the best domain adapter based on intent.
         """
@@ -149,7 +149,7 @@ class SignatureDiffDistiller:
 
     def __init__(self, target_node: str = "MacMini-M4") -> None:
         self.target_node = target_node
-        self.captured_pairs: List[SignatureDiffPair] = []
+        self.captured_pairs: list[SignatureDiffPair] = []
 
     def record_signature_diff(
         self,

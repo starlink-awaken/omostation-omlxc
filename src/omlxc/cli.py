@@ -1805,7 +1805,9 @@ def fabric_snapshot(
             _emit_success(payload, request_id=_request_id())
             return
 
-        table = Table(title="[bold #7dd3f5]KV Cache Binary Snapshot Store (0ms TTFT)[/bold #7dd3f5]", border_style="#5a7a9a")
+        table = Table(
+            title="[bold #7dd3f5]KV Cache Binary Snapshot Store (0ms TTFT)[/bold #7dd3f5]", border_style="#5a7a9a"
+        )
         table.add_column("SNAPSHOT ID", style="bold cyan")
         table.add_column("MODEL", style="dim")
         table.add_column("TOKENS", justify="right")
@@ -1826,7 +1828,9 @@ def fabric_snapshot(
         if json_output:
             _emit_success(rec.to_dict(), request_id=_request_id())
             return
-        _console.print(f"[bold green]✔ Snapshot created & cached:[/bold green] [cyan]{rec.snapshot_id}[/cyan] ({rec.token_count} tokens)")
+        _console.print(
+            f"[bold green]✔ Snapshot created & cached:[/bold green] [cyan]{rec.snapshot_id}[/cyan] ({rec.token_count} tokens)"
+        )
         return
 
     if action == "warm":
@@ -1836,7 +1840,9 @@ def fabric_snapshot(
             _emit_success({"snapshot_id": snap_id, "warmed": ok}, request_id=_request_id())
             return
         if ok:
-            _console.print(f"[bold green]✔ Snapshot state pre-warmed into GPU memory:[/bold green] [cyan]{snap_id}[/cyan]")
+            _console.print(
+                f"[bold green]✔ Snapshot state pre-warmed into GPU memory:[/bold green] [cyan]{snap_id}[/cyan]"
+            )
         else:
             _console.print(f"[bold red]✖ Failed to warm snapshot:[/bold red] {snap_id}")
         return
@@ -1858,7 +1864,11 @@ def fabric_speculative_eval(
         _emit_success(decision.to_dict(), request_id=_request_id())
         return
 
-    tier_color = "green" if decision.target_tier == "local" else ("yellow" if decision.target_tier == "hybrid-speculative" else "cyan")
+    tier_color = (
+        "green"
+        if decision.target_tier == "local"
+        else ("yellow" if decision.target_tier == "hybrid-speculative" else "cyan")
+    )
     _console.print(
         Panel(
             f"Target Tier: [bold {tier_color}]{decision.target_tier.upper()}[/bold {tier_color}]\n"
@@ -1878,8 +1888,8 @@ def fabric_dma(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0437)."""
-    from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
     from omlxc.daemon.dma_daemon import STATE_FILE_REL
+    from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
 
     # Check telemetry file first for live daemon metrics
     ws = Path.cwd()
@@ -1961,7 +1971,13 @@ def fabric_replay(
             f"Replay Buffer Persistence: [dim]{mgr.persist_path}[/dim]\n"
             f"Mix Ratio: [bold yellow]{int(mgr.replay_ratio * 100)}% Replay / {int((1.0 - mgr.replay_ratio) * 100)}% Fresh[/bold yellow]\n"
             f"Active Domains: [bold cyan]{len(stats)}[/bold cyan]\n"
-            + ("\n".join(f"  • [bold white]{k}[/bold white]: {v['size']}/{v['capacity']} samples" for k, v in stats.items()) if stats else "  • (buffer empty - waiting for signature diffs)"),
+            + (
+                "\n".join(
+                    f"  • [bold white]{k}[/bold white]: {v['size']}/{v['capacity']} samples" for k, v in stats.items()
+                )
+                if stats
+                else "  • (buffer empty - waiting for signature diffs)"
+            ),
             title="[bold #7dd3f5]Experience Replay Buffer (Anti-Forgetting Engine)[/bold #7dd3f5]",
             border_style="#5a7a9a",
             expand=False,
@@ -1976,4 +1992,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

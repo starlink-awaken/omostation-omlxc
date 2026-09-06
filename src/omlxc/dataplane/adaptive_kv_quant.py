@@ -42,7 +42,7 @@ class AdaptiveKVQuantizer:
 
     def __init__(
         self,
-        sink_tokens: int = 8,          # Number of permanent initial attention sink tokens
+        sink_tokens: int = 8,  # Number of permanent initial attention sink tokens
         head_window_tokens: int = 512,  # Number of recent tokens kept at high precision
         tail_precision: KVQuantPrecision = KVQuantPrecision.INT4,
         head_precision: KVQuantPrecision = KVQuantPrecision.INT8,

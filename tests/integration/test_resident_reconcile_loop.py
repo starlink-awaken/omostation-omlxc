@@ -117,9 +117,7 @@ def _config(root: Path, *, resident: bool, reconcile_interval_seconds: float = 0
         storage=StorageConfig(database_path=root / "state.db"),
         nodes=(NodeConfig(id="node", display_name="Node", platform="macos", memory_gb=16),),
         backends=(
-            BackendConfig(
-                id="backend", node_id="node", kind=BackendKind.OMLX_APP, base_url="http://127.0.0.1:8000"
-            ),
+            BackendConfig(id="backend", node_id="node", kind=BackendKind.OMLX_APP, base_url="http://127.0.0.1:8000"),
         ),
         models=(ModelConfig(id="local/model", category="llm", role="chat", engine="omlx"),),
         placements=(

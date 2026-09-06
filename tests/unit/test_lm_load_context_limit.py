@@ -70,14 +70,18 @@ def test_backend_without_placements_gets_no_load_options() -> None:
 
 def test_non_lm_backend_ignores_context_length() -> None:
     config = _config(16384)
-    config = config.model_copy(update={"backends": (
-        BackendConfig(
-            id="lms",
-            node_id="node",
-            kind=BackendKind.OMLX_APP,
-            base_url="http://127.0.0.1:8000",
-        ),
-    )})
+    config = config.model_copy(
+        update={
+            "backends": (
+                BackendConfig(
+                    id="lms",
+                    node_id="node",
+                    kind=BackendKind.OMLX_APP,
+                    base_url="http://127.0.0.1:8000",
+                ),
+            )
+        }
+    )
     adapters = build_configured_adapters(config)
     # omlx-app 后端没有 load_options 概念, 不应因传入 context_length 而报错
     assert "lms" in adapters
@@ -88,9 +92,7 @@ def test_lm_studio_adapter_gets_idle_ttl_as_load_default() -> None:
     直到手动卸载或机器重启 (2026-08-22 实测: mac-mini 上出现 TTL 为空的
     孤儿 qwythos 残留, 根因是 composition.py 此前只注入 context_length,
     从未注入 ttl_seconds)。"""
-    config = _config(16384).model_copy(
-        update={"policies": PoliciesConfig(idle_ttl_seconds=1800)}
-    )
+    config = _config(16384).model_copy(update={"policies": PoliciesConfig(idle_ttl_seconds=1800)})
     adapters = build_configured_adapters(config)
     adapter = adapters["lms"]
     assert adapter._load_options.context_length == 16384  # type: ignore[attr-defined]

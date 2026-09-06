@@ -5,6 +5,7 @@
 请求体 422 E100(实测: temperature 通过、stop 炸)。兼容端点必须吃下
 OpenAI 标准字段集(未实现的显式接受并忽略)。
 """
+
 from __future__ import annotations
 
 import pytest
@@ -48,8 +49,12 @@ def test_stop_tuple_or_str() -> None:
 
 def testmlx_passthrough_fields_accepted() -> None:
     # gateway 从 SSOT request_defaults 转发的 MLX 原生参数(2026-08-26 消费者链422)
-    body = OpenAIChatBody(**_minimal(), enable_thinking=False, kv_bits=8,
-                          chat_template_kwargs={"enable_thinking": False},
-                          thinking_budget=0)
+    body = OpenAIChatBody(
+        **_minimal(),
+        enable_thinking=False,
+        kv_bits=8,
+        chat_template_kwargs={"enable_thinking": False},
+        thinking_budget=0,
+    )
     assert body.kv_bits == 8
     assert body.thinking_budget == 0

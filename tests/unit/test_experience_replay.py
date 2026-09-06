@@ -1,8 +1,10 @@
 """Unit tests for Experience Replay Buffer (ADR-0437)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
 import pytest
 
 from omlxc.dataplane.experience_replay import (
@@ -67,12 +69,12 @@ def test_experience_replay_manager(tmp_path: Path) -> None:
 
 # --- BET-Y1Q3-T10-105: real distill dispatch, adapter lifecycle, alignment ---
 
-from omlxc.dataplane.experience_replay import (  # noqa: E402
+from omlxc.dataplane.experience_replay import (
     DEFAULT_ADAPTER_NAME,
-    dispatch_distill,
-    evaluate_alignment,
     adapter_dir,
     adapter_status,
+    dispatch_distill,
+    evaluate_alignment,
 )
 
 
@@ -102,9 +104,7 @@ def test_dispatch_distill_insufficient_samples(tmp_path: Path) -> None:
     assert job.sample_count == 3
 
 
-def test_dispatch_distill_routes_to_mesh_when_no_local_mlx(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dispatch_distill_routes_to_mesh_when_no_local_mlx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import omlxc.dataplane.experience_replay as er
 
     monkeypatch.setattr(er, "_mlx_lm_available", lambda: False)
@@ -130,9 +130,7 @@ def test_dispatch_distill_honest_failure_without_router(tmp_path: Path) -> None:
         monkeypatch_target.undo()
 
 
-def test_dispatch_distill_local_training_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dispatch_distill_local_training_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """MLX present path: subprocess is invoked with mlx_lm.lora and must succeed."""
     import omlxc.dataplane.experience_replay as er
 
@@ -210,4 +208,3 @@ def test_experience_replay_restore_with_task_id(tmp_path: Path) -> None:
     assert "tech-architecture" in stats
     assert stats["document-review"]["size"] == 1
     assert stats["tech-architecture"]["size"] == 1
-

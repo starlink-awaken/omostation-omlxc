@@ -138,9 +138,7 @@ def maintain_ollama_entry(entry: dict[str, object], base_url: str) -> None:
         # 手动跑时请求会被塞给 ClashX 返回 404 (2026-08-25 实锤, 同 safe_audit
         # 8/22 清代理同族坑)
         r = httpx.get(f"{base_url}/api/ps", timeout=HTTP_TIMEOUT, trust_env=False)
-        loaded = r.status_code == 200 and any(
-            m.get("name") == model_id for m in r.json().get("models", [])
-        )
+        loaded = r.status_code == 200 and any(m.get("name") == model_id for m in r.json().get("models", []))
     except Exception:
         return  # 网络不稳, 静默容忍
 
@@ -148,13 +146,23 @@ def maintain_ollama_entry(entry: dict[str, object], base_url: str) -> None:
         return
 
     if role == "embedding":
-        url, payload = f"{base_url}/api/embed", {
-            "model": model_id, "input": "hi", "keep_alive": f"{keep_alive_seconds}s",
-        }
+        url, payload = (
+            f"{base_url}/api/embed",
+            {
+                "model": model_id,
+                "input": "hi",
+                "keep_alive": f"{keep_alive_seconds}s",
+            },
+        )
     else:
-        url, payload = f"{base_url}/api/generate", {
-            "model": model_id, "prompt": "", "keep_alive": f"{keep_alive_seconds}s",
-        }
+        url, payload = (
+            f"{base_url}/api/generate",
+            {
+                "model": model_id,
+                "prompt": "",
+                "keep_alive": f"{keep_alive_seconds}s",
+            },
+        )
     try:
         r = httpx.post(url, json=payload, timeout=HTTP_TIMEOUT * 2, trust_env=False)
     except Exception:

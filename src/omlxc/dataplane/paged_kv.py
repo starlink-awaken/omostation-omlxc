@@ -47,7 +47,7 @@ class PagedKVMemoryManager:
         self,
         total_vram_mb: float = 98304.0,  # 96 GB (75% default safe quota)
         block_size_tokens: int = 32,
-        bytes_per_token: int = 2048,     # 2KB per token for 4-bit KV
+        bytes_per_token: int = 2048,  # 2KB per token for 4-bit KV
     ) -> None:
         self.block_size_tokens = block_size_tokens
         self.bytes_per_token = bytes_per_token
@@ -55,8 +55,7 @@ class PagedKVMemoryManager:
         self.total_blocks = int((total_vram_mb * 1024 * 1024) // self.bytes_per_block)
 
         self._blocks: list[PhysicalBlock] = [
-            PhysicalBlock(block_id=i, size_tokens=block_size_tokens)
-            for i in range(self.total_blocks)
+            PhysicalBlock(block_id=i, size_tokens=block_size_tokens) for i in range(self.total_blocks)
         ]
         self._free_block_ids: set[int] = set(range(self.total_blocks))
         self._seq_tables: dict[str, SequenceBlockTable] = {}

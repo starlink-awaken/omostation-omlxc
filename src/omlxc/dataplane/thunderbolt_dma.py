@@ -81,7 +81,7 @@ class ThunderboltDMABus:
         self.is_connected = True
         self.total_transferred_mb = 0.0
         self.total_blocks_migrated = 0
-        self.latencies: List[float] = []
+        self.latencies: list[float] = []
         self.ring_buffer = P2PSharedMemoryRing()
 
     def probe_link(self) -> ThunderboltBusStatus:

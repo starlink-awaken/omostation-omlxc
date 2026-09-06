@@ -6,6 +6,7 @@ live_real_world_scenario_verification.py — 真实业务场景全链路验证�
 
 import asyncio
 import time
+
 from omlxc.dataplane.distributed_kv_pool import DistributedKVPoolManager, KVStorageTier
 from omlxc.dataplane.entropy_speculator import EntropyAdaptiveSpeculator
 from omlxc.dataplane.metal_fused_attention import MetalFusedAttentionEngine
@@ -13,12 +14,12 @@ from omlxc.dataplane.predictive_warmup import PredictiveWarmupEngine
 from omlxc.dataplane.semantic_quantizer import SemanticKVQuantizer
 from omlxc.dataplane.streaming_mesh import StreamingMeshPipeline
 from omlxc.dataplane.triage import TriageClassifier
-from omlxc.domain.protocols import ChatMessage
 from omlxc.dataplane.vram_budget import (
     DEFAULT_ARCH_PROFILES,
     VRAMBudgetEstimator,
     enforce_tiered_headroom_admission,
 )
+from omlxc.domain.protocols import ChatMessage
 
 
 async def run_scenario() -> None:
@@ -36,7 +37,7 @@ async def run_scenario() -> None:
     warm_receipt = warm_engine.process_typing_stream(keystroke_input)
     t_warm = (time.perf_counter() - t0) * 1000
 
-    print(f" -> 捕获输入片段: \"{warm_receipt.typing_snippet}\"")
+    print(f' -> 捕获输入片段: "{warm_receipt.typing_snippet}"')
     print(f" -> 预测领域: {warm_receipt.predicted_domain} | 预热系统前缀: {warm_receipt.matched_prefix_tokens} tokens")
     print(f" -> 预热开销: {t_warm:.2f} ms | 用户敲击回车时首字直出延迟 (TTFT): 0.0 ms")
 
@@ -47,14 +48,14 @@ async def run_scenario() -> None:
     classifier = TriageClassifier()
     triage_res = classifier.classify(messages=(ChatMessage(role="user", content=keystroke_input),))
     print(f" -> 任务复杂度判定: [{triage_res.tier.value.upper()}] (原因: {triage_res.reason})")
-    print(f" -> 算力路由分发: 目标主模型 -> MBP M5 Max (Qwen3.8-27B-DFlash), 辅助记忆 -> Mac mini (BGE-M3)")
+    print(" -> 算力路由分发: 目标主模型 -> MBP M5 Max (Qwen3.8-27B-DFlash), 辅助记忆 -> Mac mini (BGE-M3)")
 
     # ─────────────────────────────────────────────────────────────
     # 场景步骤 3：动态上下文窗口评估与语义敏感混合精度量化
     # ─────────────────────────────────────────────────────────────
     print("\n【阶段 3】上下文窗口动态评估 (65,536 tokens 超长上下文) 与 75% 显存门禁")
     target_tokens = 65536
-    model_meta = DEFAULT_ARCH_PROFILES["qwen-3.8-27b-dflash"]
+    DEFAULT_ARCH_PROFILES["qwen-3.8-27b-dflash"]
     estimator = VRAMBudgetEstimator()
     raw_kv_mb = estimator.estimate_kv_cache_mb("qwen-3.8-27b-dflash", target_tokens)
     admission = enforce_tiered_headroom_admission(
@@ -64,34 +65,48 @@ async def run_scenario() -> None:
         total_node_vram_mb=128.0 * 1024,
     )
     print(f" -> 目标上下文长度: {target_tokens:,} tokens")
-    print(f" -> 原始 FP16 KV 显存需求: {raw_kv_mb:.2f} MB ({raw_kv_mb/1024:.2f} GB)")
+    print(f" -> 原始 FP16 KV 显存需求: {raw_kv_mb:.2f} MB ({raw_kv_mb / 1024:.2f} GB)")
     print(f" -> 显存安全门禁状态: [{admission.pressure_tier.value.upper()}] | 准入: {admission.admitted}")
 
     # 执行细粒度语义量化 (Attention Sinks + INT8 关键语法 + INT4 历史上下文)
     quantizer = SemanticKVQuantizer(sink_token_count=8)
-    sample_context = (
-        ["<|im_start|>", "system", "\n", "Context:", "OMLXC_V4_FABRIC", "\n"]
-        + ["def", " ", "route_tokens", "(", "chunk_id", ":", "int", ")", "->", "bool", ":", "return", " ", "True"] * 4680
-    )
+    sample_context = ["<|im_start|>", "system", "\n", "Context:", "OMLXC_V4_FABRIC", "\n"] + [
+        "def",
+        " ",
+        "route_tokens",
+        "(",
+        "chunk_id",
+        ":",
+        "int",
+        ")",
+        "->",
+        "bool",
+        ":",
+        "return",
+        " ",
+        "True",
+    ] * 4680
     plan = quantizer.generate_semantic_plan(sample_context)
-    print(f" -> 动态自适应压缩后显存: {plan.quantized_size_mb:.2f} MB ({plan.quantized_size_mb/1024:.2f} GB)")
-    print(f" -> 显存节约率: {(1.0 - plan.compression_ratio)*100:.1f}% | 困惑度保留: 99.97% (无损长文推理)")
+    print(f" -> 动态自适应压缩后显存: {plan.quantized_size_mb:.2f} MB ({plan.quantized_size_mb / 1024:.2f} GB)")
+    print(f" -> 显存节约率: {(1.0 - plan.compression_ratio) * 100:.1f}% | 困惑度保留: 99.97% (无损长文推理)")
 
     # ─────────────────────────────────────────────────────────────
     # 场景步骤 4：自适应熵感知树状投机满血生成
     # ─────────────────────────────────────────────────────────────
     print("\n【阶段 4】自适应熵感知动态投机步长与多分支树状验证实测")
     speculator = EntropyAdaptiveSpeculator(min_n=2, max_n=10, base_n_max=7)
-    
+
     # 低熵代码生成段 (模板、类型定义、标准库调用)
     n_code, reason_code = speculator.adapt_speculative_step(entropy=0.15, top1_prob=0.97)
     # 高熵复杂推演段 (架构决策、权衡取舍)
     n_reason, reason_reason = speculator.adapt_speculative_step(entropy=1.75, top1_prob=0.36)
-    
+
     tree_eval = speculator.build_speculative_tree("class DistributedClusterCoordinator:", depth=4, branch_factor=2)
     print(f" -> 代码模板生成区域: 动态步长 n={n_code} | 吞吐: 104.2 tok/s (提速 6.5x)")
     print(f" -> 复杂逻辑推演区域: 动态步长 n={n_reason} | 吞吐: 58.5 tok/s (智能收敛防浪费)")
-    print(f" -> 候选分支树并行验证: 候选 Token={tree_eval.total_candidate_tokens}, 验证路径={len(tree_eval.paths)}, 加速比={tree_eval.estimated_speedup}x")
+    print(
+        f" -> 候选分支树并行验证: 候选 Token={tree_eval.total_candidate_tokens}, 验证路径={len(tree_eval.paths)}, 加速比={tree_eval.estimated_speedup}x"
+    )
 
     # ─────────────────────────────────────────────────────────────
     # 场景步骤 5：跨节点流式协作流水线 (Y7000P -> Mac mini -> MBP)
@@ -105,10 +120,10 @@ async def run_scenario() -> None:
         num_chunks=4,
         chunk_processing_delay_ms=3.0,
     )
-    total_ms = (time.perf_counter() - t_start) * 1000
-    print(f" -> 节点 1 (Y7000P RTX4070): 视觉解析与 OCR 分块提取流")
-    print(f" -> 节点 2 (Mac mini M4 24G): BGE-M3 向量表征与拓扑检索流")
-    print(f" -> 节点 3 (MBP M5 Max 128G): Qwen3.8-27B DFlash 2 决策生成流")
+    (time.perf_counter() - t_start) * 1000
+    print(" -> 节点 1 (Y7000P RTX4070): 视觉解析与 OCR 分块提取流")
+    print(" -> 节点 2 (Mac mini M4 24G): BGE-M3 向量表征与拓扑检索流")
+    print(" -> 节点 3 (MBP M5 Max 128G): Qwen3.8-27B DFlash 2 决策生成流")
     print(f" -> 跨节点首块流式交付延迟 (TTFT): {receipt.first_chunk_ttft_ms} ms (比传统批等待缩减 62.5%)")
     print(f" -> 全链路总耗时: {receipt.total_duration_ms} ms (流式重叠吞吐提升 2.8x)")
 
@@ -130,7 +145,9 @@ async def run_scenario() -> None:
     print(f" -> 本地 Unified Memory 活跃块 (MBP): {status.local_memory_blocks} 块 (前台即时响应)")
     print(f" -> 分布式 L3 溢出块 (Mac mini): {status.distributed_mac_mini_blocks} 块 (局域网 1.2ms 唤醒)")
     print(f" -> 本地 NVMe 极速换页块: {status.nvme_paged_blocks} 块 (7.4GB/s 换页)")
-    print(f" -> 当前全集群托管上下文总量: {status.total_context_tokens_active:,} tokens ({status.total_kv_size_mb:,.1f} MB)")
+    print(
+        f" -> 当前全集群托管上下文总量: {status.total_context_tokens_active:,} tokens ({status.total_kv_size_mb:,.1f} MB)"
+    )
     print(f" -> 动态有效上下文窗口倍率: {status.effective_context_multiplier}x (单机 128GB 内存承载 512k 上下文)")
 
     print("\n" + "=" * 85)
