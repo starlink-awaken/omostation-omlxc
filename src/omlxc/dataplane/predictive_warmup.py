@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TypedDict
+
+
+class _DomainSignature(TypedDict):
+    keywords: list[str]
+    prefix_tokens: int
+    models: list[str]
 
 
 @dataclass(slots=True)
@@ -31,7 +37,7 @@ class PredictiveWarmupEngine:
     """
 
     def __init__(self) -> None:
-        self._domain_signatures: dict[str, dict[str, Any]] = {
+        self._domain_signatures: dict[str, _DomainSignature] = {
             "code_refactor": {
                 "keywords": ["重构", "refactor", "优化", "class ", "def ", "修复", "bug"],
                 "prefix_tokens": 1250,
@@ -62,7 +68,8 @@ class PredictiveWarmupEngine:
         start = time.time()
         text_lower = partial_text.lower()
         matched_domain = "general_conversation"
-        matched_meta = {
+        matched_meta: _DomainSignature = {
+            "keywords": [],
             "prefix_tokens": 400,
             "models": ["qwen-3.8-27b-dflash"],
         }

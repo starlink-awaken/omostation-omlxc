@@ -65,6 +65,7 @@ def test_registry_hot_swap_roundtrip(tmp_path: Path):
     import shutil
 
     from omlxc.dataplane.experience_replay import adapter_dir
+
     d = adapter_dir(tmp_path, ADAPTER_NAMES["gov"])
     d.mkdir(parents=True)
     (d / "adapters.safetensors").write_bytes(b"stub")
