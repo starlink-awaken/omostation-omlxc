@@ -249,7 +249,7 @@ def save_cache_stats(registry: SemanticCacheRegistry) -> None:
         _logger.warning("failed to save cache stats to %s", _CACHE_STATS_PATH, exc_info=True)
 
 
-def load_cache_stats() -> dict:
+def load_cache_stats() -> dict[str, Any]:
     """Load cache statistics from disk."""
     try:
         return json.loads(_CACHE_STATS_PATH.read_text())

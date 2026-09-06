@@ -49,6 +49,10 @@ class RerankEngine:
     def rerank(self, query: str, docs: list[str], top_k: int = 50) -> dict[str, Any]:
         """Score & order docs for query; returns ranking + timing metadata."""
         samples: list[float] = []
+        # Bound before the loop: the body always runs for range(3), but relying on
+        # that leaves scores/order undefined the moment the count becomes dynamic.
+        scores: list[float] = []
+        order: list[int] = []
         for _ in range(3):  # median-of-3: steady-state, cold start excluded by warmup
             t0 = time.monotonic()
             if self.backend == "cross-encoder":
