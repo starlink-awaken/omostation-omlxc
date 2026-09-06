@@ -137,15 +137,11 @@ class DMADaemonController:
         self._write_telemetry(snapshot)
 
     def _get_mbp_vram_used_mb(self) -> float:
-        try:
-            import importlib.util
-
-            if importlib.util.find_spec("omlxc.dataplane.vram_budget"):
-                from omlxc.dataplane import vram_budget  # type: ignore[attr-defined]
-
-                return float(vram_budget.VRAMBudgetGuard().current_usage_mb())
-        except Exception:
-            pass
+        # Synthetic placeholder: no real VRAM reading exists. This used to try
+        # vram_budget.VRAMBudgetGuard(), a class that was never defined anywhere
+        # (vram_budget.py only estimates *projected* KV-cache cost, not *current*
+        # usage) — the call always raised and was swallowed, so this sine wave
+        # has been the only value ever returned. Feeds _trigger_kv_spillover.
         import math
 
         t = time.time() % 60

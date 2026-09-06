@@ -66,8 +66,7 @@ class StreamingMeshPipeline:
 
         processed_chunks = 0
 
-        for chunk_idx in range(num_chunks):
-            time.time()
+        for _ in range(num_chunks):
             # Simulate low-latency chunk streaming
             await asyncio.sleep(chunk_processing_delay_ms / 1000.0)
             chunk_end = time.time()

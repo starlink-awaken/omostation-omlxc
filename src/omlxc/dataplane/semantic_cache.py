@@ -237,11 +237,12 @@ def save_cache_stats(registry: SemanticCacheRegistry) -> None:
     """Save cache statistics to disk for A2 axis."""
     try:
         _CACHE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        live = registry.get_stats()
         stats = {
-            "l1_hits": registry._l1_hits,
-            "l2_hits": registry._l2_hits,
-            "misses": registry._misses,
-            "total_entries": len(registry._entries),
+            "l1_hits": live["l1_exact_hits"],
+            "l2_hits": live["l2_semantic_hits"],
+            "misses": live["misses"],
+            "total_entries": live["total_entries"],
             "saved_at": time.time(),
         }
         _CACHE_STATS_PATH.write_text(json.dumps(stats, indent=2))

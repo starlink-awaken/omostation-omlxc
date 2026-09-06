@@ -75,7 +75,7 @@ class DFlashBackendManager:
             draft_model_path="/Users/xiamingxing/omlx/models/Qwen3.8-27B-DFlash2-Q8_0.gguf",
         )
         self.binary_path = binary_path or "/Users/xiamingxing/omlx/bin/llama-server-dflash"
-        self._process: subprocess.Popen | None = None
+        self._process: subprocess.Popen[bytes] | None = None
         self._is_active = False
 
     @property

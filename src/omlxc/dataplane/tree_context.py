@@ -29,7 +29,7 @@ class TreeNode:
     embedding: list[float] = field(default_factory=list[float])
     children: list[str] = field(default_factory=list[str])  # node_ids of children
     parent_id: str | None = None
-    entities: set[str] = field(default_factory=set)  # extracted key entities
+    entities: set[str] = field(default_factory=set[str])  # extracted key entities
 
 
 @dataclass(slots=True)
@@ -290,7 +290,8 @@ class TreeContextIndex:
                 if sim >= similarity_threshold:
                     continue  # too similar, probably consistent
 
-                pair_key = tuple(sorted([node_a.node_id, node_b.node_id]))
+                first_id, second_id = sorted([node_a.node_id, node_b.node_id])
+                pair_key = (first_id, second_id)
                 if pair_key in seen_pairs:
                     continue
                 seen_pairs.add(pair_key)
@@ -327,7 +328,7 @@ class TreeContextIndex:
         total_nodes = len(self._nodes)
         max_depth = max((n.level for n in self._nodes.values()), default=0)
         total_text_chars = sum(len(n.text) for n in self._nodes.values())
-        total_entities = set()
+        total_entities: set[str] = set()
         for n in self._nodes.values():
             total_entities |= n.entities
 
