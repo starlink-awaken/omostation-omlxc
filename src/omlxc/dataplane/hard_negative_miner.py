@@ -59,8 +59,8 @@ class DiffReport:
 
     sample_id: str
     domain: str
-    hunks: list[DiffHunk] = field(default_factory=list)
-    intent_counts: dict[str, int] = field(default_factory=dict)
+    hunks: list[DiffHunk] = field(default_factory=list["DiffHunk"])
+    intent_counts: dict[str, int] = field(default_factory=dict[str, int])
     draft_len: int = 0
     signed_len: int = 0
 

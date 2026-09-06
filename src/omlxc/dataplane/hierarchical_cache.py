@@ -40,7 +40,7 @@ class HierarchicalResolutionPlan:
     quantization_plan: CompressedKVPlan
     context_opt: ContextOptimizationResult
     estimated_ttft_ms: float
-    telemetry: dict[str, Any] = field(default_factory=dict)
+    telemetry: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 class HierarchicalCacheCoordinator:
@@ -170,7 +170,7 @@ class HierarchicalCacheCoordinator:
 
         # 2. Store in Paged Memory Table if seq_id given
         if seq_id:
-            if seq_id not in self.paged_kv._seq_tables:
+            if not self.paged_kv.has_sequence(seq_id):
                 self.paged_kv.allocate_sequence(seq_id, len(token_seq), model_id=model_id)
             else:
                 self.paged_kv.append_tokens(seq_id, len(token_seq))

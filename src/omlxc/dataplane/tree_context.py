@@ -26,8 +26,8 @@ class TreeNode:
     summary: str  # condensed summary (<200 tokens approx)
     chunk_start: int  # char offset in original doc
     chunk_end: int
-    embedding: list[float] = field(default_factory=list)
-    children: list[str] = field(default_factory=list)  # node_ids of children
+    embedding: list[float] = field(default_factory=list[float])
+    children: list[str] = field(default_factory=list[str])  # node_ids of children
     parent_id: str | None = None
     entities: set[str] = field(default_factory=set)  # extracted key entities
 

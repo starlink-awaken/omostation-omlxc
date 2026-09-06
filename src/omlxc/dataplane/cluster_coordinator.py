@@ -46,7 +46,7 @@ class ClusterNodeInfo:
     consecutive_successes: int = 0
     ewma_latency_ms: float = 20.0
     last_heartbeat: float = field(default_factory=time.time)
-    preferred_capabilities: list[str] = field(default_factory=list)
+    preferred_capabilities: list[str] = field(default_factory=list[str])
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,8 +188,8 @@ class MultiNodeClusterCoordinator:
         Simulates end-to-end collaborative cross-node execution across stages.
         """
         start_time = time.perf_counter()
-        participating_nodes = []
-        results = {}
+        participating_nodes: list[str] = []
+        results: dict[str, dict[str, Any]] = {}
         all_success = True
 
         for stage in stages:

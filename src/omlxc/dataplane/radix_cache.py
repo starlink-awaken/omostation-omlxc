@@ -28,8 +28,8 @@ class RadixTreeNode:
     """Node in the Radix Trie representing a contiguous sequence of tokens."""
 
     tokens: tuple[int, ...]
-    block_ids: list[str] = field(default_factory=list)
-    children: dict[int, RadixTreeNode] = field(default_factory=dict)
+    block_ids: list[str] = field(default_factory=list[str])
+    children: dict[int, RadixTreeNode] = field(default_factory=dict[int, "RadixTreeNode"])
     parent: RadixTreeNode | None = None
     ref_count: int = 0
     last_accessed: float = field(default_factory=time.monotonic)

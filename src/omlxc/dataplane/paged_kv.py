@@ -15,7 +15,7 @@ import sys
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(slots=True)
@@ -34,7 +34,7 @@ class SequenceBlockTable:
     """Logical sequence to physical block mapping with Copy-on-Write tracking."""
 
     seq_id: str
-    physical_blocks: list[int] = field(default_factory=list)
+    physical_blocks: list[int] = field(default_factory=list[int])
     num_tokens: int = 0
 
 
@@ -71,6 +71,9 @@ class PagedKVMemoryManager:
     @property
     def memory_utilization_ratio(self) -> float:
         return (self.allocated_blocks_count / self.total_blocks) if self.total_blocks > 0 else 0.0
+
+    def has_sequence(self, seq_id: str) -> bool:
+        return seq_id in self._seq_tables
 
     def allocate_sequence(self, seq_id: str, initial_tokens: int, model_id: str = "") -> SequenceBlockTable:
         """Allocate physical blocks for a new sequence."""
@@ -270,7 +273,11 @@ class PagedKVCache:
         # Estimate size (use sys.getsizeof for Python objects, plus alignment)
         value_size = sys.getsizeof(value)
         if isinstance(value, (list, dict, set)):
-            value_size += sum(sys.getsizeof(item) for item in value) if hasattr(value, "__iter__") else 0
+            # This estimator deliberately accepts arbitrary cached content — isinstance
+            # narrows the container type but tells us nothing about what's inside it,
+            # which is fine, since sys.getsizeof doesn't care either.
+            container = cast("list[Any] | dict[Any, Any] | set[Any]", value)
+            value_size += sum(sys.getsizeof(item) for item in container) if hasattr(container, "__iter__") else 0
         aligned = self._aligned_size(value_size)
 
         # If this key already exists, remove old entry first

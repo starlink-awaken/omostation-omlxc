@@ -20,7 +20,7 @@ class SpeculativeTreeNode:
     confidence: float
     entropy: float
     depth: int
-    children: list[SpeculativeTreeNode] = field(default_factory=list)
+    children: list[SpeculativeTreeNode] = field(default_factory=list["SpeculativeTreeNode"])
 
 
 @dataclass(slots=True)
