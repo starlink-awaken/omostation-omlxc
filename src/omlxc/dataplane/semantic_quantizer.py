@@ -11,11 +11,10 @@ Provides:
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from dataclasses import dataclass
 
 
-class SemanticTokenCategory(str, enum.Enum):
+class SemanticTokenCategory(enum.StrEnum):
     ATTENTION_SINK = "ATTENTION_SINK"  # First 8 tokens (FP16)
     CRITICAL_SYNTAX = "CRITICAL_SYNTAX"  # Code keywords, vars, digits (INT8)
     STANDARD_CONTEXT = "STANDARD_CONTEXT"  # Dialogue history (INT4)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 from omlxc.dataplane.paged_kv import PagedKVCache
 
 

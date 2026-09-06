@@ -16,7 +16,6 @@ import sysconfig
 import tempfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 # ctranslate2.dll 的 CUDA12 运行库注入(同 asr_test.py, 必须在 import 前注入)
 _sp = sysconfig.get_paths()["purelib"]

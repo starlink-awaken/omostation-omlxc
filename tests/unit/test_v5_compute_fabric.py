@@ -10,11 +10,8 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from omlxc.dataplane.lora_adapter_manager import (
     LoRAAdapterManager,
-    LoRAAdapterMetadata,
     SignatureDiffDistiller,
 )
 from omlxc.dataplane.symbiotic_distiller import (

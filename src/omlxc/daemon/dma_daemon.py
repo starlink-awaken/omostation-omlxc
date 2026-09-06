@@ -18,7 +18,6 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
 
 from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 from omlxc.dataplane.thunderbolt_dma import (

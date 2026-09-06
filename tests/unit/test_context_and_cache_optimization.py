@@ -11,8 +11,6 @@ Validates:
 
 from __future__ import annotations
 
-import pytest
-
 from omlxc.dataplane.adaptive_kv_quant import AdaptiveKVQuantizer, KVQuantPrecision
 from omlxc.dataplane.context_compressor import ContextOptimizer
 from omlxc.dataplane.hierarchical_cache import (

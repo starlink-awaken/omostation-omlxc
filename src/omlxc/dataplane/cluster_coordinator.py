@@ -16,19 +16,18 @@ Features:
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     HEALTHY = "HEALTHY"
     DEGRADED = "DEGRADED"
     OFFLINE = "OFFLINE"
 
 
-class NodeRole(str, Enum):
+class NodeRole(StrEnum):
     PRIMARY_BRAIN = "PRIMARY_BRAIN"
     MEMORY_WORKER = "MEMORY_WORKER"
     SENSORY_WORKER = "SENSORY_WORKER"

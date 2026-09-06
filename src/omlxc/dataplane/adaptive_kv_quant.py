@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Any
 
 
 class KVQuantPrecision(enum.StrEnum):
