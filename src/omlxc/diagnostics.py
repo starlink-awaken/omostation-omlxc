@@ -58,6 +58,7 @@ async def run_direct_doctor(config: AppConfig) -> dict[str, Any]:
                             raise PermissionError
                 await adapter.discover()
                 checks.append({"name": f"backend:{backend.id}", "ok": True})
+                checks.append(await _placement_inventory_check(config, backend, adapter))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -74,6 +75,42 @@ async def run_direct_doctor(config: AppConfig) -> dict[str, Any]:
                 await asyncio.gather(close(), return_exceptions=True)
     healthy = all(bool(check["ok"]) for check in checks)
     return {"status": "healthy" if healthy else "degraded", "checks": checks}
+
+
+async def _placement_inventory_check(
+    config: AppConfig,
+    backend: Any,
+    adapter: Any,
+) -> dict[str, object]:
+    """Reconcile configured backend_model_id values against what the backend serves.
+
+    A placement whose backend_model_id is absent from the backend's inventory stays
+    visible in config and in the routing catalog, but every operation on it fails —
+    and the failure reads as a generic operation error rather than "the target does
+    not exist". The daemon only reports this as an inventory count delta, which does
+    not say which placements went missing.
+    """
+    name = f"inventory:{backend.id}"
+    placements = [item for item in config.placements if item.backend_id == backend.id]
+    if not placements:
+        return {"name": name, "ok": True, "detail": "no placements configured"}
+
+    try:
+        served = {model.id for model in await adapter.list_models()}
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return {"name": name, "ok": False, "detail": "inventory unavailable"}
+
+    missing = sorted(item.id for item in placements if item.backend_model_id not in served)
+    if missing:
+        return {
+            "name": name,
+            "ok": False,
+            "detail": f"{len(missing)}/{len(placements)} placements target a model the backend does not serve",
+            "placements": missing,
+        }
+    return {"name": name, "ok": True, "detail": f"{len(placements)} placements reconciled"}
 
 
 def _private_path_check(name: str, path: Path, *, expected_mode: int) -> dict[str, object]:
