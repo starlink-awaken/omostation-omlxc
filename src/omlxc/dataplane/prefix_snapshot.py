@@ -99,7 +99,7 @@ class StaticPrefixSnapshotManager:
         # Write binary mock/real snapshot stub
         bin_path = self.root_dir / f"{snapshot_id}.kv"
         if not bin_path.exists():
-            bin_path.write_bytes(f"KV_SNAPSHOT_V2:{prefix_hash}:{est_tokens}".encode("utf-8"))
+            bin_path.write_bytes(f"KV_SNAPSHOT_V2:{prefix_hash}:{est_tokens}".encode())
 
         meta = PrefixSnapshotMetadata(
             snapshot_id=snapshot_id,

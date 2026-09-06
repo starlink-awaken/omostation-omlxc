@@ -16,16 +16,16 @@ from enum import IntEnum
 from typing import Any
 
 from omlxc.dataplane.vram_budget import (
+    TieredHeadroomResult,
     VRAMPressureTier,
     enforce_tiered_headroom_admission,
-    TieredHeadroomResult,
 )
 
 
 class TaskPriority(IntEnum):
     P0_INTERACTIVE = 0  # Preempts background, zero-wait
-    P1_PIPELINE = 1     # Agent standard execution
-    P2_BACKGROUND = 2   # Yields when memory pressure > 70%
+    P1_PIPELINE = 1  # Agent standard execution
+    P2_BACKGROUND = 2  # Yields when memory pressure > 70%
 
 
 @dataclass(slots=True)
@@ -119,9 +119,13 @@ class PriorityVRAMScheduler:
             "active_count": len(self._active_requests),
             "pending_count": len(self._pending_queue),
             "active_by_priority": {
-                "P0_interactive": sum(1 for r in self._active_requests.values() if r.priority == TaskPriority.P0_INTERACTIVE),
+                "P0_interactive": sum(
+                    1 for r in self._active_requests.values() if r.priority == TaskPriority.P0_INTERACTIVE
+                ),
                 "P1_pipeline": sum(1 for r in self._active_requests.values() if r.priority == TaskPriority.P1_PIPELINE),
-                "P2_background": sum(1 for r in self._active_requests.values() if r.priority == TaskPriority.P2_BACKGROUND),
+                "P2_background": sum(
+                    1 for r in self._active_requests.values() if r.priority == TaskPriority.P2_BACKGROUND
+                ),
             },
             "current_vram_mb": self._current_used_vram_mb,
             "total_vram_mb": self.total_node_vram_mb,

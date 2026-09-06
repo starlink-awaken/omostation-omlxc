@@ -3,6 +3,7 @@ Unit tests for Next-Gen omlxc V4.0 Sovereign Compute Engine (ADR-0434).
 """
 
 import asyncio
+
 import pytest
 
 from omlxc.dataplane.distributed_kv_pool import (
@@ -123,8 +124,28 @@ def test_distributed_kv_pool() -> None:
 def test_semantic_quantizer_sinks() -> None:
     quantizer = SemanticKVQuantizer(sink_token_count=8)
     tokens = ["<|im_start|>", "system", "\n", "You", "are", "Antigravity", ".", "\n"] + [
-        "def", " ", "calculate_sum", "(", "a", ":", "int", ",", "b", ":", "int", ")", "->", "int", ":",
-        "return", " ", "a", " ", "+", " ", "b",
+        "def",
+        " ",
+        "calculate_sum",
+        "(",
+        "a",
+        ":",
+        "int",
+        ",",
+        "b",
+        ":",
+        "int",
+        ")",
+        "->",
+        "int",
+        ":",
+        "return",
+        " ",
+        "a",
+        " ",
+        "+",
+        " ",
+        "b",
     ]
 
     plan = quantizer.generate_semantic_plan(tokens, hidden_dim=4096, num_layers=32)

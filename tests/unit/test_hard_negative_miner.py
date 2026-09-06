@@ -74,9 +74,12 @@ def test_parse_sample_structured_report_on_real_buffer():
 
 def test_mine_negatives_aggregates_recurring_patterns(tmp_path: Path):
     samples = [
-        {"sample_id": f"s{i}", "domain": "document-review",
-         "instruction": f"文件{i}：为进一步推进该项工作，请高度重视。",
-         "output": f"文件{i}：请抓好落实。"}
+        {
+            "sample_id": f"s{i}",
+            "domain": "document-review",
+            "instruction": f"文件{i}：为进一步推进该项工作，请高度重视。",
+            "output": f"文件{i}：请抓好落实。",
+        }
         for i in range(4)
     ]
     buf = tmp_path / "buffer.jsonl"
@@ -89,9 +92,7 @@ def test_mine_negatives_aggregates_recurring_patterns(tmp_path: Path):
 
 def test_export_rules_jsonl(tmp_path: Path):
     samples = [
-        {"sample_id": f"s{i}", "domain": "d",
-         "instruction": "为进一步推进工作，应当认真落实。",
-         "output": "应当落实。"}
+        {"sample_id": f"s{i}", "domain": "d", "instruction": "为进一步推进工作，应当认真落实。", "output": "应当落实。"}
         for i in range(3)
     ]
     buf = tmp_path / "b.jsonl"

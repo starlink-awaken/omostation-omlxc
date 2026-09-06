@@ -58,7 +58,7 @@ class DistributedKVPoolManager:
     ) -> None:
         self.local_vram_limit_mb = local_vram_limit_mb
         self.mac_mini_memory_limit_mb = mac_mini_memory_limit_mb
-        self.blocks: Dict[str, DistributedKVBlock] = {}
+        self.blocks: dict[str, DistributedKVBlock] = {}
 
     def allocate_or_migrate(
         self,
@@ -71,14 +71,16 @@ class DistributedKVPoolManager:
         Allocates new KV block or migrates inactive blocks across tiers based on pressure.
         """
         size_mb = (tokens_count * bytes_per_token) / (1024 * 1024)
-        block_id = f"kv_{sequence_id}_{int(time.time()*1000)}"
+        block_id = f"kv_{sequence_id}_{int(time.time() * 1000)}"
 
         # If active turn, prioritize local unified memory
         if is_active_turn:
             tier = KVStorageTier.LOCAL_UNIFIED_MEMORY
         else:
             # Inactive conversation turn -> offload to Mac mini L3 or NVMe
-            mac_mini_used = sum(b.size_mb for b in self.blocks.values() if b.tier == KVStorageTier.DISTRIBUTED_MAC_MINI_MEMORY)
+            mac_mini_used = sum(
+                b.size_mb for b in self.blocks.values() if b.tier == KVStorageTier.DISTRIBUTED_MAC_MINI_MEMORY
+            )
             if mac_mini_used + size_mb <= self.mac_mini_memory_limit_mb:
                 tier = KVStorageTier.DISTRIBUTED_MAC_MINI_MEMORY
             else:

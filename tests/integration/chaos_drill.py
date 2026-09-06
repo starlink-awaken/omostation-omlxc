@@ -12,6 +12,7 @@ the daemon's transport state machine and memory manager interface.
 
 Reference: docs/superpowers/specs/2026-08-30-sovereign-mesh-daemon-sre-design.md §3
 """
+
 from __future__ import annotations
 
 import json

@@ -6,6 +6,7 @@
 比 pipeline-watchdog.sh 贵(真实加载+生成)，不放进 5 分钟一次的快速探测层。
 建议时机: 改完 config.toml 之后手动跑一次；或按需定期跑。
 """
+
 import json
 import os
 import re
@@ -72,8 +73,13 @@ def is_garbage(text: str) -> bool:
 
 
 def bench(base: str, model_id: str, max_tokens: int = 120, timeout: float = 90) -> dict:
-    payload = {"model": model_id, "messages": [{"role": "user", "content": PROMPT}],
-               "max_tokens": max_tokens, "temperature": 0.3, "stream": True}
+    payload = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": PROMPT}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+        "stream": True,
+    }
     t0 = time.perf_counter()
     ttft = None
     parts = []
@@ -99,7 +105,12 @@ def bench(base: str, model_id: str, max_tokens: int = 120, timeout: float = 90) 
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:120]}
     full = "".join(parts)
-    return {"ok": True, "ttft_ms": round(ttft * 1000, 1) if ttft else None, "sample": full[:60], "garbage": is_garbage(full)}
+    return {
+        "ok": True,
+        "ttft_ms": round(ttft * 1000, 1) if ttft else None,
+        "sample": full[:60],
+        "garbage": is_garbage(full),
+    }
 
 
 def main():
@@ -130,11 +141,14 @@ def main():
             else:
                 status = "FAIL"
             rows.append((m["id"], backend_id, status, r.get("ttft_ms"), r.get("sample", r.get("error", ""))))
-            print(f"{m['id']:<32} {backend_id:<28} {status:<8} ttft={r.get('ttft_ms')} {r.get('sample', r.get('error',''))!r}", flush=True)
+            print(
+                f"{m['id']:<32} {backend_id:<28} {status:<8} ttft={r.get('ttft_ms')} {r.get('sample', r.get('error', ''))!r}",
+                flush=True,
+            )
             time.sleep(2)
 
     bad = [row for row in rows if row[2] in ("GARBAGE", "FAIL")]
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"共测 {len(rows)} 个 placement，{len(bad)} 个异常(GARBAGE/FAIL)")
     for row in bad:
         print(f"  {row[0]} / {row[1]}: {row[2]}")

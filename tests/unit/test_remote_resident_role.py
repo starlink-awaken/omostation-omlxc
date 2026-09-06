@@ -5,6 +5,7 @@
 warm-keep 已实测踩坑: embedding 角色打 chat 端点 400 "not an LLM/chat model")。
 role 是 remote_resident 条目的真实属性, 进 daemon schema 走正规军。
 """
+
 from __future__ import annotations
 
 import pytest

@@ -8,6 +8,7 @@ Manages lifecycle of:
 4. Self-healing reconnect with exponential back-off (1s -> 2s -> 4s -> max 30s).
 5. Telemetry: writes JSON state to .omo/state/mesh-telemetry.json on each probe cycle.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,15 +20,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 from omlxc.dataplane.thunderbolt_dma import (
     ThunderboltDMABus,
     ThunderboltTransportMode,
 )
-from omlxc.dataplane.paged_kv import PagedKVMemoryManager
 
 PROBE_INTERVAL_S: float = float(os.environ.get("OMLXC_DMA_PROBE_INTERVAL", "1.0"))
 VRAM_ALERT_RATIO: float = float(os.environ.get("OMLXC_VRAM_ALERT_RATIO", "0.75"))
-VRAM_TOTAL_MBP_MB: float = 131072.0   # 128GB MBP M5 Max
+VRAM_TOTAL_MBP_MB: float = 131072.0  # 128GB MBP M5 Max
 RECONNECT_BASE_S: float = 1.0
 RECONNECT_MAX_S: float = 30.0
 STATE_FILE_REL: str = ".omo/state/mesh-telemetry.json"
@@ -36,6 +37,7 @@ STATE_FILE_REL: str = ".omo/state/mesh-telemetry.json"
 @dataclass
 class MeshTelemetrySnapshot:
     """Telemetry payload written on each probe cycle."""
+
     timestamp_utc: str
     is_connected: bool
     active_transport: str
@@ -57,7 +59,7 @@ class DMADaemonController:
 
     def __init__(
         self,
-        workspace_root: Optional[Path] = None,
+        workspace_root: Path | None = None,
         probe_interval_s: float = PROBE_INTERVAL_S,
         vram_alert_ratio: float = VRAM_ALERT_RATIO,
     ) -> None:
@@ -88,7 +90,7 @@ class DMADaemonController:
         while self._running:
             try:
                 self._probe_cycle()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 _log("WARN", f"probe cycle error: {exc}")
             time.sleep(self.probe_interval_s)
         _log("INFO", "omlxc DMA Daemon stopped")
@@ -138,12 +140,15 @@ class DMADaemonController:
     def _get_mbp_vram_used_mb(self) -> float:
         try:
             import importlib.util
+
             if importlib.util.find_spec("omlxc.dataplane.vram_budget"):
                 from omlxc.dataplane import vram_budget  # type: ignore[attr-defined]
+
                 return float(vram_budget.VRAMBudgetGuard().current_usage_mb())
         except Exception:
             pass
         import math
+
         t = time.time() % 60
         return VRAM_TOTAL_MBP_MB * 0.60 + VRAM_TOTAL_MBP_MB * 0.08 * math.sin(t * 0.1)
 
@@ -157,8 +162,11 @@ class DMADaemonController:
             source_node="MBP-M5Max",
             target_node="MacMini-M4",
         )
-        _log("INFO", f"KV spillover: {receipt.size_mb:.1f}MB "
-                     f"in {receipt.transfer_latency_ms:.3f}ms via {receipt.transport_mode.value}")
+        _log(
+            "INFO",
+            f"KV spillover: {receipt.size_mb:.1f}MB "
+            f"in {receipt.transfer_latency_ms:.3f}ms via {receipt.transport_mode.value}",
+        )
 
     def _write_telemetry(self, snapshot: MeshTelemetrySnapshot) -> None:
         state_path = self.ws / STATE_FILE_REL
@@ -231,6 +239,7 @@ def generate_launchd_plist(workspace_root: Path, python_path: str | None = None)
 
 def main() -> None:
     import argparse
+
     parser = argparse.ArgumentParser(description="omlxc V5.0 Sovereign DMA Daemon")
     parser.add_argument("--workspace", type=Path, default=None)
     parser.add_argument("--generate-plist", type=Path, default=None, metavar="OUTPUT")

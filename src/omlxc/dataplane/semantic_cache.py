@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,7 +102,7 @@ def warm_system_prefixes(
 
     # Save cache stats for A2 axis
     save_cache_stats(registry)
-    
+
     return {
         "model_id": model_id,
         "warmed_count": len(warmed_names),
@@ -184,7 +186,6 @@ class SemanticCacheRegistry:
         """Clear all in-memory entries."""
         self._entries.clear()
 
-
     def store(
         self,
         key: str,
@@ -229,13 +230,11 @@ class SemanticCacheRegistry:
 
 # Persistence for cache statistics
 _CACHE_STATS_PATH = Path.home() / ".omlxc" / "cache_stats.json"
+_logger = logging.getLogger(__name__)
 
-def save_cache_stats(registry: "SemanticCacheRegistry") -> None:
+
+def save_cache_stats(registry: SemanticCacheRegistry) -> None:
     """Save cache statistics to disk for A2 axis."""
-    import json
-    import sys
-    print(f"DEBUG: save_cache_stats called, registry type: {type(registry)}", file=sys.stderr)
-    print(f"DEBUG: _CACHE_STATS_PATH = {_CACHE_STATS_PATH}", file=sys.stderr)
     try:
         _CACHE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
         stats = {
@@ -246,13 +245,16 @@ def save_cache_stats(registry: "SemanticCacheRegistry") -> None:
             "saved_at": time.time(),
         }
         _CACHE_STATS_PATH.write_text(json.dumps(stats, indent=2))
-    except Exception as e:
-        import sys
-        print(f"DEBUG: Exception in save_cache_stats: {e}", file=sys.stderr)
+    except Exception:
+        _logger.warning("failed to save cache stats to %s", _CACHE_STATS_PATH, exc_info=True)
+
 
 def load_cache_stats() -> dict:
     """Load cache statistics from disk."""
     try:
         return json.loads(_CACHE_STATS_PATH.read_text())
+    except FileNotFoundError:
+        return {"l1_hits": 0, "l2_hits": 0, "misses": 0, "total_entries": 0}
     except Exception:
+        _logger.warning("failed to load cache stats from %s", _CACHE_STATS_PATH, exc_info=True)
         return {"l1_hits": 0, "l2_hits": 0, "misses": 0, "total_entries": 0}

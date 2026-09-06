@@ -77,7 +77,9 @@ class RoamingComputeRouter:
         # 2. 本地受限或显存不足，发起局域网漫游调度
         best_peer = self.discovery.find_best_placement(model_id, priority=priority)
         if best_peer and best_peer.node_id != self.local_node_id:
-            reason = "本地节点温度节流" if (local_node and local_node.is_throttled) else "本地显存不足，触发弹性溢出漫游"
+            reason = (
+                "本地节点温度节流" if (local_node and local_node.is_throttled) else "本地显存不足，触发弹性溢出漫游"
+            )
             return RoamingDecision(
                 job_id=job_id,
                 model_id=model_id,

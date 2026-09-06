@@ -170,7 +170,7 @@ PostgreSQL serves as the primary data store.
     def test_query_relevant_higher_score(self) -> None:
         idx = self._build_index()
         results_health = idx.query("National Health Commission regulation")
-        results_tech = idx.query("PostgreSQL database")
+        idx.query("PostgreSQL database")
         # The most relevant result for health query should be about health
         assert results_health[0].score > 0
 

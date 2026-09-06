@@ -118,25 +118,25 @@ def lm_loaded(model_id: str) -> bool:
     (2026-08-24 实测: 保活探测触发 JIT 后 swap 17→24.6GB)。"""
     result = subprocess.run(
         [str(Path.home() / ".lmstudio" / "bin" / "lms"), "ps", "--json"],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     try:
         rows = json.loads(result.stdout)
     except Exception:
         return False
-    return any(
-        r.get("identifier") == model_id or r.get("modelKey") == model_id
-        for r in rows if isinstance(r, dict)
-    )
+    return any(r.get("identifier") == model_id or r.get("modelKey") == model_id for r in rows if isinstance(r, dict))
 
 
 def lm_load_capped(model_id: str, context_length: int) -> bool:
     """显式限 ctx 加载(lms load), 与 remote-resident-maintain 同一模式。
     c=64K: 权重之外的 KV cache 从 1M ctx 的几十 GB 收敛到 ~2GB 量级。"""
     result = subprocess.run(
-        [str(Path.home() / ".lmstudio" / "bin" / "lms"), "load", model_id,
-         "-c", str(context_length), "--ttl", "3600"],
-        capture_output=True, text=True, timeout=180,
+        [str(Path.home() / ".lmstudio" / "bin" / "lms"), "load", model_id, "-c", str(context_length), "--ttl", "3600"],
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
     return result.returncode == 0
 

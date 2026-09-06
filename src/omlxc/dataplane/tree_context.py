@@ -94,7 +94,7 @@ def _simple_embedding(text: str, dim: int = 128) -> list[float]:
     tokens = _simple_tokenize(text)
     vec = [0.0] * dim
     for token in tokens:
-        h = int(hashlib.md5(token.encode()).hexdigest(), 16)
+        h = int(hashlib.md5(token.encode(), usedforsecurity=False).hexdigest(), 16)
         idx = h % dim
         vec[idx] += 1.0
     # Normalize
@@ -139,7 +139,6 @@ class TreeContextIndex:
         # Split by markdown-style headings
         lines = document.split("\n")
         heading_stack: list[tuple[int, str]] = []  # (level, heading_text)
-        current_chunks: list[tuple[int, str, int, int]] = []  # (level, heading, start, end)
         char_offset = 0
         node_counter = 0
 
@@ -173,14 +172,14 @@ class TreeContextIndex:
 
         # If no headings found, treat the whole document as a single section
         if not raw_sections:
-            raw_sections = [(1, "Document", document[:self.summary_max_chars * 4], 0, len(document))]
+            raw_sections = [(1, "Document", document[: self.summary_max_chars * 4], 0, len(document))]
 
         # Phase 2: Build tree nodes
         for level, heading, text, start, end in raw_sections:
             node_id = f"node-{node_counter}"
             node_counter += 1
             heading_path = [h for _, h in heading_stack if _ < level] + [heading]
-            summary = text[:self.summary_max_chars] + ("..." if len(text) > self.summary_max_chars else "")
+            summary = text[: self.summary_max_chars] + ("..." if len(text) > self.summary_max_chars else "")
             embedding = _simple_embedding(text, self.embedding_dim)
             entities = _extract_key_entities(text)
 
@@ -237,13 +236,15 @@ class TreeContextIndex:
             if score > 0.01:  # minimum threshold
                 snippet_start = max(0, node.chunk_start)
                 snippet_end = min(len(self._doc_text), node.chunk_start + 500)
-                results.append(QueryResult(
-                    node_id=node.node_id,
-                    heading_path=node.heading_path,
-                    score=score,
-                    text_snippet=self._doc_text[snippet_start:snippet_end],
-                    summary=node.summary,
-                ))
+                results.append(
+                    QueryResult(
+                        node_id=node.node_id,
+                        heading_path=node.heading_path,
+                        score=score,
+                        text_snippet=self._doc_text[snippet_start:snippet_end],
+                        summary=node.summary,
+                    )
+                )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
@@ -306,15 +307,17 @@ class TreeContextIndex:
                     f"Negation signals: A={a_negations or 'none'}, B={b_negations or 'none'}."
                 )
 
-                contradictions.append(ContradictionPair(
-                    node_a_id=node_a.node_id,
-                    heading_a=node_a.heading_path,
-                    node_b_id=node_b.node_id,
-                    heading_b=node_b.heading_path,
-                    score=severity,
-                    entity_overlap=common_entities,
-                    description=description,
-                ))
+                contradictions.append(
+                    ContradictionPair(
+                        node_a_id=node_a.node_id,
+                        heading_a=node_a.heading_path,
+                        node_b_id=node_b.node_id,
+                        heading_b=node_b.heading_path,
+                        score=severity,
+                        entity_overlap=common_entities,
+                        description=description,
+                    )
+                )
 
         contradictions.sort(key=lambda c: c.score, reverse=True)
         return contradictions

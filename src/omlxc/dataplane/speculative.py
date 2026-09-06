@@ -39,7 +39,9 @@ class SpeculativeRouter:
         length = len(text)
 
         # 1. Check for quick AST / Syntax / Format tasks -> Local 8B/14B
-        is_local_triage = length < 120 and not any(k in text for k in ["架构设计", "长远愿景", "博弈推演", "复杂重构", "红蓝对抗"])
+        is_local_triage = length < 120 and not any(
+            k in text for k in ["架构设计", "长远愿景", "博弈推演", "复杂重构", "红蓝对抗"]
+        )
         if is_local_triage:
             return SpeculativeRoutingDecision(
                 target_tier="local",
@@ -50,7 +52,9 @@ class SpeculativeRouter:
             )
 
         # 2. Check for complex strategic / architectural / multi-perspective tasks -> Hybrid Speculative or Cloud
-        is_deep_reasoning = any(k in text for k in ["架构", "愿景", "长远", "推演", "博弈", "审计", "合规", "红蓝对抗", "立项方案"])
+        is_deep_reasoning = any(
+            k in text for k in ["架构", "愿景", "长远", "推演", "博弈", "审计", "合规", "红蓝对抗", "立项方案"]
+        )
         if is_deep_reasoning or length > 500:
             return SpeculativeRoutingDecision(
                 target_tier="hybrid-speculative",

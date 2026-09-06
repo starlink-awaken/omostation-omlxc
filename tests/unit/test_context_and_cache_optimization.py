@@ -132,12 +132,12 @@ def test_context_optimizer_compaction() -> None:
 
     raw_text = """
     这是系统主提示词。
-    
-    
-    
+
+
+
     ==============================
     以下是任务详情：
-    1. 任务一   
+    1. 任务一
     """
 
     res = optimizer.optimize_text(raw_text)

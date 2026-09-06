@@ -122,7 +122,9 @@ def main() -> int:
         print(f"\n[{placement_id}] model={model_id} mem={mem_gb}GB free={free:.1f}GB", flush=True)
 
         if mem_gb > HUGE_THRESHOLD_GB and not allow_huge:
-            print(f"  SKIP-HUGE: {mem_gb}GB 超过 {HUGE_THRESHOLD_GB}GB 阈值, 默认不测(传 --allow-huge 覆盖)", flush=True)
+            print(
+                f"  SKIP-HUGE: {mem_gb}GB 超过 {HUGE_THRESHOLD_GB}GB 阈值, 默认不测(传 --allow-huge 覆盖)", flush=True
+            )
             results.append((placement_id, "SKIP-HUGE", f"{mem_gb}GB"))
             continue
 

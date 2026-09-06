@@ -16,10 +16,10 @@ from typing import Any, Dict, List, Tuple
 
 
 class SemanticTokenCategory(str, enum.Enum):
-    ATTENTION_SINK = "ATTENTION_SINK"          # First 8 tokens (FP16)
-    CRITICAL_SYNTAX = "CRITICAL_SYNTAX"        # Code keywords, vars, digits (INT8)
-    STANDARD_CONTEXT = "STANDARD_CONTEXT"      # Dialogue history (INT4)
-    FILLER_TEXT = "FILLER_TEXT"                # Stopwords / repetitive tokens (INT2)
+    ATTENTION_SINK = "ATTENTION_SINK"  # First 8 tokens (FP16)
+    CRITICAL_SYNTAX = "CRITICAL_SYNTAX"  # Code keywords, vars, digits (INT8)
+    STANDARD_CONTEXT = "STANDARD_CONTEXT"  # Dialogue history (INT4)
+    FILLER_TEXT = "FILLER_TEXT"  # Stopwords / repetitive tokens (INT2)
 
 
 @dataclass(slots=True)
@@ -43,13 +43,33 @@ class SemanticKVQuantizer:
     def __init__(self, sink_token_count: int = 8) -> None:
         self.sink_token_count = sink_token_count
         self._critical_code_patterns = {
-            "def", "class", "return", "import", "from", "if", "else", "for", "while",
-            "=", "==", "!=", "<=", ">=", "(", ")", "[", "]", "{", "}", ":", "->",
+            "def",
+            "class",
+            "return",
+            "import",
+            "from",
+            "if",
+            "else",
+            "for",
+            "while",
+            "=",
+            "==",
+            "!=",
+            "<=",
+            ">=",
+            "(",
+            ")",
+            "[",
+            "]",
+            "{",
+            "}",
+            ":",
+            "->",
         }
 
     def generate_semantic_plan(
         self,
-        token_strings: List[str],
+        token_strings: list[str],
         hidden_dim: int = 4096,
         num_layers: int = 32,
     ) -> SemanticQuantizationPlan:
@@ -83,10 +103,10 @@ class SemanticKVQuantizer:
 
         raw_size_mb = total_tokens * (2.0 * layer_scale)  # FP16 = 2 bytes/element
         quant_size_mb = (
-            sink_count * 2.0 * layer_scale +             # FP16 (2.0 B)
-            critical_count * 1.0 * layer_scale +         # INT8 (1.0 B)
-            standard_count * 0.5 * layer_scale +         # INT4 (0.5 B)
-            filler_count * 0.25 * layer_scale            # INT2 (0.25 B)
+            sink_count * 2.0 * layer_scale  # FP16 (2.0 B)
+            + critical_count * 1.0 * layer_scale  # INT8 (1.0 B)
+            + standard_count * 0.5 * layer_scale  # INT4 (0.5 B)
+            + filler_count * 0.25 * layer_scale  # INT2 (0.25 B)
         )
 
         compression_ratio = quant_size_mb / max(0.001, raw_size_mb)

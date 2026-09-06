@@ -8,6 +8,7 @@ fabric 红线: 数据不足如实标注, 不编造趋势; 快照数 < 7 时明�
 
 挂载: cron 周一 08:05 (数据自 2026-08-24 起积累, 首份完整周报 2026-09-01)。
 """
+
 from __future__ import annotations
 
 import re
@@ -79,7 +80,7 @@ def main() -> int:
     print(f"📊 omlxc 周报 · {datetime.now():%Y-%m-%d} (近 {DAYS} 天, 起 {since})")
     print(f"   快照总数 {len(snaps)} (近{DAYS}天 {len(recent)}) — ", end="")
     if len(recent) < 7:
-        print(f"⚠️ 数据积累中(自 2026-08-24 起), 趋势仅供参考")
+        print("⚠️ 数据积累中(自 2026-08-24 起), 趋势仅供参考")
     else:
         print("数据充分")
 
@@ -95,15 +96,19 @@ def main() -> int:
     ok_list = [s["placement_ok"] for s in recent if "placement_ok" in s]
     tot = recent[0].get("placement_total") if recent else None
     if ok_list:
-        print(f"\n📦 Placement 可用性: 日均 {sum(ok_list)/len(ok_list):.1f}/{tot}"
-              f" ({100*sum(ok_list)/len(ok_list)/(tot or 1):.0f}%) | 最低 {min(ok_list)} | 最高 {max(ok_list)}")
+        print(
+            f"\n📦 Placement 可用性: 日均 {sum(ok_list) / len(ok_list):.1f}/{tot}"
+            f" ({100 * sum(ok_list) / len(ok_list) / (tot or 1):.0f}%) | 最低 {min(ok_list)} | 最高 {max(ok_list)}"
+        )
 
     # 内存/swap
     mems = [s["mem_free"] for s in recent if "mem_free" in s]
     swaps = [s["swap"] for s in recent if "swap" in s]
     if mems:
-        print(f"💾 内存: 可用均值 {sum(mems)/len(mems):.0f}GB (区间 {min(mems):.0f}-{max(mems):.0f}) | "
-              f"swap 均值 {sum(swaps)/len(swaps):.1f}GB (峰值 {max(swaps):.1f})")
+        print(
+            f"💾 内存: 可用均值 {sum(mems) / len(mems):.0f}GB (区间 {min(mems):.0f}-{max(mems):.0f}) | "
+            f"swap 均值 {sum(swaps) / len(swaps):.1f}GB (峰值 {max(swaps):.1f})"
+        )
 
     # 节点在线率
     node_seen: dict[str, list[bool]] = defaultdict(list)
@@ -113,7 +118,7 @@ def main() -> int:
     if node_seen:
         print("🌐 节点在线率:")
         for name, vals in sorted(node_seen.items()):
-            print(f"   {name}: {100*sum(vals)/len(vals):.0f}% ({sum(vals)}/{len(vals)} 快照)")
+            print(f"   {name}: {100 * sum(vals) / len(vals):.0f}% ({sum(vals)}/{len(vals)} 快照)")
 
     # 常驻稳定性(watchdog) — 7天/24h 双口径: 历史故障期会污染整周失败率
     # (2026-08-25 实锤: bge-m3 404 故障期把 mac-mini 推到 70%, 当日实际已恢复)
@@ -123,8 +128,7 @@ def main() -> int:
         print("🔁 remote_resident 稳定性(近7天 / 近24h):")
         for node, st in sorted(res.items()):
             total = st["ok"] + st["fail"]
-            line = (f"   {node}: 补齐 {st['ok']} | 失败 {st['fail']}"
-                    f" ({100*st['fail']/total:.0f}% 失败率)")
+            line = f"   {node}: 补齐 {st['ok']} | 失败 {st['fail']} ({100 * st['fail'] / total:.0f}% 失败率)"
             st24 = res24.get(node)
             if st24:
                 if st24["fail"] == 0:

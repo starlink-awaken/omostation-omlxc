@@ -70,10 +70,12 @@ def reclaim_metal_memory_pool() -> dict[str, Any]:
     Prevents long-running VRAM memory leaks and fragmentation.
     """
     import gc
+
     reclaimed_stats = {"gc_collected": 0, "metal_cleared": False}
     try:
         # If mlx is available in python environment
         import mlx.core as mx
+
         if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
             mx.metal.clear_cache()
             reclaimed_stats["metal_cleared"] = True
@@ -84,10 +86,10 @@ def reclaim_metal_memory_pool() -> dict[str, Any]:
 
 
 class VRAMPressureTier(str, Enum):
-    GREEN = "green"    # < 70%: Fully safe, background indexing allowed
+    GREEN = "green"  # < 70%: Fully safe, background indexing allowed
     YELLOW = "yellow"  # 70% ~ 75%: Soft threshold, defer P2 background tasks
     ORANGE = "orange"  # 75% ~ 82%: Compaction recommended, P1 throttled
-    RED = "red"        # >= 82%: Hard ceiling, admission rejected to prevent swap storm
+    RED = "red"  # >= 82%: Hard ceiling, admission rejected to prevent swap storm
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +111,9 @@ def enforce_tiered_headroom_admission(
     requested_tokens: int,
     current_used_vram_mb: float,
     total_node_vram_mb: float = 131072.0,  # 128GB default for MBP M5 Max
-    normal_safe_ratio: float = 0.75,       # 75% (~96GB) balanced allocation
-    soft_warning_ratio: float = 0.70,      # 70% (~89.6GB) soft compaction warning
-    emergency_hard_ratio: float = 0.82,    # 82% (~107.5GB) emergency limit
+    normal_safe_ratio: float = 0.75,  # 75% (~96GB) balanced allocation
+    soft_warning_ratio: float = 0.70,  # 70% (~89.6GB) soft compaction warning
+    emergency_hard_ratio: float = 0.82,  # 82% (~107.5GB) emergency limit
 ) -> TieredHeadroomResult:
     """
     Tiered dynamic VRAM admission governor.
@@ -151,7 +153,7 @@ def enforce_tiered_headroom_admission(
             safe_ceiling_mb=safe_mb,
             system_reserved_mb=reserved_mb,
             reason=(
-                f"Emergency limit reached: {total_projected_mb:.1f} MB exceeds {emergency_hard_ratio*100:.0f}% "
+                f"Emergency limit reached: {total_projected_mb:.1f} MB exceeds {emergency_hard_ratio * 100:.0f}% "
                 f"ceiling ({hard_mb:.1f} MB). OS Swap protection active."
             ),
             compaction_advised=True,
@@ -167,7 +169,7 @@ def enforce_tiered_headroom_admission(
         total_projected_mb=total_projected_mb,
         safe_ceiling_mb=safe_mb,
         system_reserved_mb=reserved_mb,
-        reason=f"Admitted ({tier.value.upper()}): {total_projected_mb:.1f} MB <= {normal_safe_ratio*100:.0f}% budget ({safe_mb:.1f} MB)",
+        reason=f"Admitted ({tier.value.upper()}): {total_projected_mb:.1f} MB <= {normal_safe_ratio * 100:.0f}% budget ({safe_mb:.1f} MB)",
         compaction_advised=compaction_advised,
         max_safe_tokens=requested_tokens,
         recommended_compaction_ratio=0.15 if tier == VRAMPressureTier.ORANGE else 0.0,

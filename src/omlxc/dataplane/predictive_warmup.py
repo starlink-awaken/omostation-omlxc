@@ -22,7 +22,7 @@ class PredictiveWarmupReceipt:
     pre_warmed_nodes: int
     is_ready_for_zero_ttft: bool
     warmup_duration_ms: float
-    target_models: List[str]
+    target_models: list[str]
 
 
 class PredictiveWarmupEngine:
@@ -31,7 +31,7 @@ class PredictiveWarmupEngine:
     """
 
     def __init__(self) -> None:
-        self._domain_signatures: Dict[str, Dict[str, Any]] = {
+        self._domain_signatures: dict[str, dict[str, Any]] = {
             "code_refactor": {
                 "keywords": ["重构", "refactor", "优化", "class ", "def ", "修复", "bug"],
                 "prefix_tokens": 1250,
@@ -53,7 +53,7 @@ class PredictiveWarmupEngine:
                 "models": ["embed-bge-m3", "baai-bge-reranker-v2-m3-mlx-fp16"],
             },
         }
-        self.locked_prefix_cache: Set[str] = set()
+        self.locked_prefix_cache: set[str] = set()
 
     def process_typing_stream(self, partial_text: str) -> PredictiveWarmupReceipt:
         """

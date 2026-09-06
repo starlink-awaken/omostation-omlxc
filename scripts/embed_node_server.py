@@ -92,7 +92,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")
+    # 默认 0.0.0.0 是算力池设计要求: 该节点服务需被其他节点经 Tailscale 访问
+    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104
     parser.add_argument("--port", type=int, default=18700)
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), Handler)

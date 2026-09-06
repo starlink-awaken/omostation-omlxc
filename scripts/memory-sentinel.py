@@ -108,9 +108,7 @@ def high_risk_models(rows: list[dict[str, Any]]) -> list[str]:
 
 def proc_rss_top(n: int = 12) -> list[str]:
     try:
-        out = subprocess.run(
-            ["/bin/ps", "-axo", "pid,rss,comm"], capture_output=True, text=True, timeout=10
-        ).stdout
+        out = subprocess.run(["/bin/ps", "-axo", "pid,rss,comm"], capture_output=True, text=True, timeout=10).stdout
         lines = out.splitlines()[1:]
         parsed: list[tuple[int, str]] = []
         for line in lines:

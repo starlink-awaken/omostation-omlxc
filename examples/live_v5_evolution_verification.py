@@ -13,24 +13,25 @@ from __future__ import annotations
 
 import sys
 import time
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from omlxc.dataplane.thunderbolt_dma import (
-    ThunderboltDMABus,
-    ThunderboltTransportMode,
+from omlxc.dataplane.lora_adapter_manager import (
+    LoRAAdapterManager,
+    SignatureDiffDistiller,
 )
 from omlxc.dataplane.symbiotic_distiller import (
     SymbioticDraftDistiller,
 )
+from omlxc.dataplane.thunderbolt_dma import (
+    ThunderboltDMABus,
+    ThunderboltTransportMode,
+)
 from omlxc.dataplane.vit_patch_streamer import (
     CrossAttentionStreamingReceiver,
     ViTPatchStreamer,
-)
-from omlxc.dataplane.lora_adapter_manager import (
-    LoRAAdapterManager,
-    SignatureDiffDistiller,
 )
 
 console = Console()
@@ -56,13 +57,15 @@ def run_live_v5_verification() -> None:
     link_status = dma_bus.probe_link()
     console.print(f"  ● 物理互联状态: [green]CONNECTED[/green] ({link_status.active_transport.value})")
     console.print(f"  ● 链路带宽: [bold cyan]{link_status.link_speed_gbps} Gbps[/bold cyan]")
-    console.print(f"  ● 统一虚拟 NUMA 内存池: [bold green]{link_status.numa_pool_size_gb} GB[/bold green] (MBP 128G + Mini 24G)")
+    console.print(
+        f"  ● 统一虚拟 NUMA 内存池: [bold green]{link_status.numa_pool_size_gb} GB[/bold green] (MBP 128G + Mini 24G)"
+    )
 
     # Test migrating 10 KV page chunks (2MB each, 2048 tokens per page)
     dma_receipts = []
     for i in range(10):
         receipt = dma_bus.transfer_kv_block(
-            block_id=f"kv-seq-4096-blk-{i+1:02d}",
+            block_id=f"kv-seq-4096-blk-{i + 1:02d}",
             size_mb=2.0,
             source_node="MBP-M5Max",
             target_node="MacMini-M4",
@@ -70,7 +73,9 @@ def run_live_v5_verification() -> None:
         dma_receipts.append(receipt)
 
     avg_dma_lat = sum(r.transfer_latency_ms for r in dma_receipts) / len(dma_receipts)
-    console.print(f"  ● 2MB KV 块单页跨机迁移平均延迟: [bold green]{avg_dma_lat:.3f} ms[/bold green] (目标 <0.15ms 达成!)")
+    console.print(
+        f"  ● 2MB KV 块单页跨机迁移平均延迟: [bold green]{avg_dma_lat:.3f} ms[/bold green] (目标 <0.15ms 达成!)"
+    )
     console.print("  ● 校验和一致性 (Checksum SHA256): [bold green]100% PASS[/bold green]")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -92,9 +97,15 @@ def run_live_v5_verification() -> None:
 
     distill_metrics = distiller.get_metrics()
     console.print(f"  ● 在线蒸馏校准步数: [bold cyan]{distill_metrics.total_steps_trained}[/bold cyan] 步")
-    console.print(f"  ● 领域语义对齐度 (Alignment Score): [bold green]{distill_metrics.target_alignment_score:.3f}[/bold green]")
-    console.print(f"  ● 投机草稿命中率 (Acceptance Rate): 基线 75.0% ➔ [bold green]{distill_metrics.current_acceptance_rate*100:.1f}%[/bold green]")
-    console.print(f"  ● 投机加速倍率 (Speedup Ratio): [bold green]{distill_metrics.estimated_speedup_ratio}x[/bold green] (满血吞吐突破 104+ tok/s)")
+    console.print(
+        f"  ● 领域语义对齐度 (Alignment Score): [bold green]{distill_metrics.target_alignment_score:.3f}[/bold green]"
+    )
+    console.print(
+        f"  ● 投机草稿命中率 (Acceptance Rate): 基线 75.0% ➔ [bold green]{distill_metrics.current_acceptance_rate * 100:.1f}%[/bold green]"
+    )
+    console.print(
+        f"  ● 投机加速倍率 (Speedup Ratio): [bold green]{distill_metrics.estimated_speedup_ratio}x[/bold green] (满血吞吐突破 104+ tok/s)"
+    )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Stage 3: 视觉多模态 Patch Feature 级跨节点流式直通
@@ -118,10 +129,16 @@ def run_live_v5_verification() -> None:
         simulated_transfer_delay_per_chunk_ms=6.2,
     )
 
-    console.print(f"  ● 图像尺寸: 1024x1024 (总 Patch 数: {vision_receipt.total_patches}, 分块: {vision_receipt.total_chunks} 块)")
-    console.print(f"  ● 首块 Patch 交付延迟 (First Chunk TTFT): [bold green]{vision_receipt.first_chunk_latency_ms:.2f} ms[/bold green]")
+    console.print(
+        f"  ● 图像尺寸: 1024x1024 (总 Patch 数: {vision_receipt.total_patches}, 分块: {vision_receipt.total_chunks} 块)"
+    )
+    console.print(
+        f"  ● 首块 Patch 交付延迟 (First Chunk TTFT): [bold green]{vision_receipt.first_chunk_latency_ms:.2f} ms[/bold green]"
+    )
     console.print(f"  ● 传统整图阻塞等待延迟: [dim]{vision_receipt.blocking_latency_ms:.2f} ms[/dim]")
-    console.print(f"  ● 多模态端到端 TTFT 缩短比例: [bold green]{vision_receipt.ttft_reduction_ratio*100:.1f}%[/bold green] (目标 >70% 达成!)")
+    console.print(
+        f"  ● 多模态端到端 TTFT 缩短比例: [bold green]{vision_receipt.ttft_reduction_ratio * 100:.1f}%[/bold green] (目标 >70% 达成!)"
+    )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Stage 4: 夏明星专属署名 Diff 闲时在线 LoRA 持续微调与热插拔
@@ -140,13 +157,19 @@ def run_live_v5_verification() -> None:
 
     # 2. Trigger idle fine-tuning job on Mac mini
     job = diff_distiller.trigger_idle_distillation(domain_tag="dfsq-architecture")
-    console.print(f"  ● 闲时微调任务状态: [bold green]{job.status}[/bold green] (耗时: {job.training_duration_seconds}s, Loss: {job.final_loss:.4f})")
+    console.print(
+        f"  ● 闲时微调任务状态: [bold green]{job.status}[/bold green] (耗时: {job.training_duration_seconds}s, Loss: {job.final_loss:.4f})"
+    )
     console.print(f"  ● 生成适配层产物: [dim]{job.output_adapter_path}[/dim] (大小: 16.2 MB)")
 
     # 3. Hot-mount adapter test
     mount_receipt = lora_mgr.mount_adapter("lora-dfsq-architecture")
-    console.print(f"  ● 适配层动态挂载耗时: [bold green]{mount_receipt.mount_latency_ms:.3f} ms[/bold green] (目标 <0.5ms 达成!)")
-    console.print(f"  ● 显存占用开销: [cyan]{mount_receipt.vram_overhead_mb:.1f} MB[/cyan] (对 25~32GB 专属物理内存预留 0 侵占)")
+    console.print(
+        f"  ● 适配层动态挂载耗时: [bold green]{mount_receipt.mount_latency_ms:.3f} ms[/bold green] (目标 <0.5ms 达成!)"
+    )
+    console.print(
+        f"  ● 显存占用开销: [cyan]{mount_receipt.vram_overhead_mb:.1f} MB[/cyan] (对 25~32GB 专属物理内存预留 0 侵占)"
+    )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Summary Table
@@ -165,14 +188,14 @@ def run_live_v5_verification() -> None:
     )
     summary.add_row(
         "2. 共生草稿头在线蒸馏",
-        f"命中率: {distill_metrics.current_acceptance_rate*100:.1f}%, S={distill_metrics.estimated_speedup_ratio}x",
+        f"命中率: {distill_metrics.current_acceptance_rate * 100:.1f}%, S={distill_metrics.estimated_speedup_ratio}x",
         "比静态草稿 (75%) 提速 22.4%",
         "✅ PASS",
     )
     summary.add_row(
         "3. 视觉 Patch 流式直通",
         f"首块交付延迟: {vision_receipt.first_chunk_latency_ms:.2f} ms",
-        f"TTFT 降低 {vision_receipt.ttft_reduction_ratio*100:.1f}%",
+        f"TTFT 降低 {vision_receipt.ttft_reduction_ratio * 100:.1f}%",
         "✅ PASS",
     )
     summary.add_row(

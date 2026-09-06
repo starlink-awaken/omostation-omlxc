@@ -10,8 +10,9 @@ Enables:
 from __future__ import annotations
 
 import time
+from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass(slots=True)
@@ -60,8 +61,8 @@ class ViTPatchStreamer:
     def stream_image_features(
         self,
         image_id: str,
-        image_resolution: Tuple[int, int] = (1024, 1024),
-    ) -> Generator[ViTPatchChunk, None, None]:
+        image_resolution: tuple[int, int] = (1024, 1024),
+    ) -> Generator[ViTPatchChunk]:
         """
         Streams visual patch feature embeddings chunk by chunk.
         """
@@ -76,7 +77,7 @@ class ViTPatchStreamer:
             start = chunk_idx * self.chunk_size_patches
             end = min(total_patches, start + self.chunk_size_patches)
             count = end - start
-            is_final = (chunk_idx == total_chunks - 1)
+            is_final = chunk_idx == total_chunks - 1
             # Feature bytes = count * embedding_dim * sizeof(FP16 = 2)
             feat_bytes = count * self.embedding_dim * 2
 
@@ -101,21 +102,21 @@ class CrossAttentionStreamingReceiver:
     def __init__(self, target_node: str = "MBP-M5Max") -> None:
         self.target_node = target_node
         self.received_patches = 0
-        self.chunks_received: List[ViTPatchChunk] = []
+        self.chunks_received: list[ViTPatchChunk] = []
 
     def consume_stream(
         self,
         image_id: str,
-        stream: Generator[ViTPatchChunk, None, None],
+        stream: Generator[ViTPatchChunk],
         simulated_transfer_delay_per_chunk_ms: float = 8.5,
     ) -> StreamingVisionReceipt:
         """
         Consumes chunks, calculates first-chunk delivery vs full blocking delay.
         """
         start_time = time.time()
-        first_chunk_time: Optional[float] = None
+        first_chunk_time: float | None = None
 
-        chunks: List[ViTPatchChunk] = []
+        chunks: list[ViTPatchChunk] = []
         for idx, chunk in enumerate(stream):
             if idx == 0:
                 first_chunk_time = (time.time() - start_time) * 1000.0 + simulated_transfer_delay_per_chunk_ms
