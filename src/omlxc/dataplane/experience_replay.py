@@ -20,6 +20,7 @@ import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -82,6 +83,11 @@ class DomainReplayBuffer:
         for s in chosen:
             s.replay_count += 1
         return chosen
+
+    @property
+    def samples(self) -> tuple[ReplaySample, ...]:
+        """Read-only view for callers that need to iterate the reservoir."""
+        return tuple(self._samples)
 
     def __len__(self) -> int:
         return len(self._samples)
@@ -162,12 +168,12 @@ class ExperienceReplayManager:
         count = 0
         with self.persist_path.open("w", encoding="utf-8") as f:
             for buf in self._buffers.values():
-                for s in buf._samples:
+                for s in buf.samples:
                     f.write(json.dumps(asdict(s), ensure_ascii=False) + "\n")
                     count += 1
         return count
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, dict[str, int]]:
         return {domain: {"size": len(buf), "capacity": buf.max_size} for domain, buf in self._buffers.items()}
 
     def _get_or_create_buffer(self, domain: str) -> DomainReplayBuffer:
@@ -228,7 +234,7 @@ def adapter_dir(workspace_root: Path | None = None, name: str = DEFAULT_ADAPTER_
     return ws / ADAPTER_DIR_REL / name
 
 
-def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Path | None = None) -> dict:
+def adapter_status(name: str = DEFAULT_ADAPTER_NAME, workspace_root: Path | None = None) -> dict[str, Any]:
     """Inspect a trained adapter on disk without loading model weights."""
     path = adapter_dir(workspace_root, name)
     if not path.is_dir():
@@ -284,7 +290,7 @@ def evaluate_alignment(
     reference: str,
     base_output: str,
     adapter_output: str,
-) -> dict:
+) -> dict[str, Any]:
     """Score adapter vs base outputs against a user-signed reference (ROUGE-L)."""
     base_score = _rouge_l_f1(base_output, reference)
     adapter_score = _rouge_l_f1(adapter_output, reference)
