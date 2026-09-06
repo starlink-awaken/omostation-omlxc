@@ -10,8 +10,8 @@ Enables true 0ms TTFT by:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(slots=True)

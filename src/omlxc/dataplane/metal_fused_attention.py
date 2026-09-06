@@ -9,9 +9,7 @@ Simulates:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Any, Dict
 
 
 @dataclass(frozen=True, slots=True)

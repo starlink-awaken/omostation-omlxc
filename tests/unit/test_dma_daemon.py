@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from omlxc.daemon.dma_daemon import (
     DMADaemonController,
-    MeshTelemetrySnapshot,
     generate_launchd_plist,
 )
 

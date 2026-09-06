@@ -11,9 +11,6 @@ Executes end-to-end verification of:
 
 from __future__ import annotations
 
-import sys
-import time
-
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table

@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from .adaptive_kv_quant import AdaptiveKVQuantizer, CompressedKVPlan
 from .context_compressor import ContextOptimizationResult, ContextOptimizer
-from .paged_kv import PagedKVMemoryManager, SequenceBlockTable
+from .paged_kv import PagedKVMemoryManager
 from .prefix_snapshot import StaticPrefixSnapshotManager
 from .radix_cache import PrefixMatchResult, RadixPrefixCache
 from .semantic_cache import SemanticCacheRegistry

@@ -7,9 +7,8 @@ live_real_world_scenario_verification.py — 真实业务场景全链路验证�
 import asyncio
 import time
 
-from omlxc.dataplane.distributed_kv_pool import DistributedKVPoolManager, KVStorageTier
+from omlxc.dataplane.distributed_kv_pool import DistributedKVPoolManager
 from omlxc.dataplane.entropy_speculator import EntropyAdaptiveSpeculator
-from omlxc.dataplane.metal_fused_attention import MetalFusedAttentionEngine
 from omlxc.dataplane.predictive_warmup import PredictiveWarmupEngine
 from omlxc.dataplane.semantic_quantizer import SemanticKVQuantizer
 from omlxc.dataplane.streaming_mesh import StreamingMeshPipeline

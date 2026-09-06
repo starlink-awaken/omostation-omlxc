@@ -12,7 +12,6 @@ from __future__ import annotations
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass(slots=True)

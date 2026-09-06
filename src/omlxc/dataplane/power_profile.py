@@ -8,14 +8,12 @@ Dynamically switches inference throughput profiles based on power source (AC vs 
 
 from __future__ import annotations
 
-import os
 import subprocess
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 
-class PowerSource(str, Enum):
+class PowerSource(StrEnum):
     AC = "ac"
     BATTERY = "battery"
     UNKNOWN = "unknown"

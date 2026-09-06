@@ -8,7 +8,7 @@ Calculates dynamic key-value cache memory expansion for long-context requests
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Final
 
 
@@ -85,7 +85,7 @@ def reclaim_metal_memory_pool() -> dict[str, Any]:
     return reclaimed_stats
 
 
-class VRAMPressureTier(str, Enum):
+class VRAMPressureTier(StrEnum):
     GREEN = "green"  # < 70%: Fully safe, background indexing allowed
     YELLOW = "yellow"  # 70% ~ 75%: Soft threshold, defer P2 background tasks
     ORANGE = "orange"  # 75% ~ 82%: Compaction recommended, P1 throttled
