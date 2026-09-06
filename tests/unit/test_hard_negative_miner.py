@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from omlxc.dataplane.hard_negative_miner import (
     classify_hunk,
@@ -12,6 +15,21 @@ from omlxc.dataplane.hard_negative_miner import (
     parse_sample,
     parse_signature_diff,
 )
+
+
+def _replay_buffer() -> Path | None:
+    """Locate the LoRA replay buffer.
+
+    It is operator workspace state, not a repository fixture, so it is absent on
+    any checkout that is not the operator's own — CI included.
+    """
+    override = os.environ.get("OMLX_TEST_REPLAY_BUFFER")
+    candidate = (
+        Path(override)
+        if override
+        else Path(__file__).resolve().parents[4] / ".omo" / "state" / "lora-replay-buffer.jsonl"
+    )
+    return candidate if candidate.exists() else None
 
 
 def test_parse_signature_diff_detects_ops():
@@ -31,13 +49,14 @@ def test_classify_hunk_banned_phrase():
     assert "banned_phrase" in intents
 
 
+@pytest.mark.skipif(
+    _replay_buffer() is None,
+    reason="LoRA replay buffer is operator workspace state; set OMLX_TEST_REPLAY_BUFFER to point at one",
+)
 def test_parse_sample_structured_report_on_real_buffer():
     """done_when[0]: 真实 replay buffer 样本 → 结构化 Diff 报告（含语义分类）。"""
-    ws = Path(__file__).resolve().parents[4]
-    buf = ws / ".omo" / "state" / "lora-replay-buffer.jsonl"
-    if not buf.exists():
-        buf = Path("/Users/xiamingxing/Workspace/.omo/state/lora-replay-buffer.jsonl")
-    assert buf.exists(), "replay buffer missing"
+    buf = _replay_buffer()
+    assert buf is not None
     count = 0
     with buf.open(encoding="utf-8") as f:
         for line in f:
@@ -80,5 +99,5 @@ def test_export_rules_jsonl(tmp_path: Path):
     rules, _ = mine_negatives(buf)
     out = tmp_path / "rules.jsonl"
     n = export_rules(rules, out)
-    lines = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert n == len(lines) and lines and lines[0]["rule_id"]
