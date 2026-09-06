@@ -64,7 +64,7 @@ def test_registry_hot_swap_roundtrip(tmp_path: Path):
     # 伪造已训练适配器目录（机制验证，非伪造权重——目录由 dispatch_distill 产出）
     import shutil
 
-    from omlxc.dataplane.lora_manager import adapter_dir
+    from omlxc.dataplane.experience_replay import adapter_dir
     d = adapter_dir(tmp_path, ADAPTER_NAMES["gov"])
     d.mkdir(parents=True)
     (d / "adapters.safetensors").write_bytes(b"stub")
@@ -112,6 +112,34 @@ def test_distill_all_real_dispatch_when_shard_sufficient(tmp_path: Path, monkeyp
     records = mgr.distill_all()
     assert calls == list(DOMAINS)
     assert all(r.status == "routed" and r.target_node == "node-m4" for r in records)
+
+
+def test_shard_manager_reconstructs_real_replay_samples(tmp_path: Path):
+    """dispatch_distill's local-MLX path reads .instruction/.output off whatever
+    build_training_batch hands back. _ShardManager used to hand back the raw
+    JSONL dicts unmodified — this crashed with AttributeError the moment
+    mlx_lm was actually installed, but every test in this file monkeypatches
+    dispatch_distill entirely, so nothing here exercised that path.
+    """
+    from omlxc.dataplane.experience_replay import ReplaySample
+    from omlxc.dataplane.lora_manager import _ShardManager
+
+    shard_path = tmp_path / "shard.jsonl"
+    shard_path.write_text(
+        json.dumps({"sample_id": "gov-0", "domain": "gov", "instruction": "请示", "output": "批复"}) + "\n",
+        encoding="utf-8",
+    )
+
+    mgr = _ShardManager(tmp_path, shard_path)
+    buf = mgr.get_or_create_buffer("gov")
+
+    assert len(buf) == 1
+    assert all(isinstance(s, ReplaySample) for s in buf.samples)
+
+    batch = mgr.build_training_batch(fresh_samples=list(buf.samples), domain="gov")
+    sample = batch.all_samples[0]
+    assert sample.instruction == "请示"
+    assert sample.output == "批复"
 
 
 def test_list_adapters_shape(tmp_path: Path):

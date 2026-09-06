@@ -18,9 +18,10 @@ import json
 import random
 import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 
 @dataclass
@@ -122,7 +123,7 @@ class ExperienceReplayManager:
         domain: str = "signature-style",
     ) -> ReplaySample:
         """Add a new (instruction, output) pair from a user signature diff."""
-        buf = self._get_or_create_buffer(domain)
+        buf = self.get_or_create_buffer(domain)
         sample = ReplaySample(
             sample_id=f"{domain}-{int(time.time() * 1000)}",
             domain=domain,
@@ -142,7 +143,7 @@ class ExperienceReplayManager:
         Mix fresh samples with replay samples at the configured ratio.
         Ensures model does not overfit to recent signal and retains past alignment.
         """
-        buf = self._get_or_create_buffer(domain)
+        buf = self.get_or_create_buffer(domain)
         n_replay = max(1, int(target_batch_size * self.replay_ratio))
         n_replay = min(n_replay, len(buf))
 
@@ -176,7 +177,7 @@ class ExperienceReplayManager:
     def stats(self) -> dict[str, dict[str, int]]:
         return {domain: {"size": len(buf), "capacity": buf.max_size} for domain, buf in self._buffers.items()}
 
-    def _get_or_create_buffer(self, domain: str) -> DomainReplayBuffer:
+    def get_or_create_buffer(self, domain: str) -> DomainReplayBuffer:
         if domain not in self._buffers:
             self._buffers[domain] = DomainReplayBuffer(domain, self.buffer_size_per_domain)
         return self._buffers[domain]
@@ -195,7 +196,7 @@ class ExperienceReplayManager:
                     valid_keys = getattr(ReplaySample, "__dataclass_fields__", {})
                     filtered = {k: v for k, v in data.items() if k in valid_keys} if valid_keys else data
                     sample = ReplaySample(**filtered)
-                    self._get_or_create_buffer(sample.domain).add(sample)
+                    self.get_or_create_buffer(sample.domain).add(sample)
                     count += 1
         except Exception:
             pass
@@ -304,20 +305,56 @@ def evaluate_alignment(
     }
 
 
+class _DistillBufferLike(Protocol):
+    """What dispatch_distill needs from a domain buffer.
+
+    Structural, not nominal: LoraAdapterManager's per-shard _ShardBuffer
+    satisfies this without inheriting from DomainReplayBuffer.
+    """
+
+    def __len__(self) -> int: ...
+    @property
+    def samples(self) -> Sequence[ReplaySample]: ...
+
+
+class _DistillManagerLike(Protocol):
+    """What dispatch_distill needs from a manager. See _DistillBufferLike."""
+
+    ws: Path
+
+    def get_or_create_buffer(self, domain: str) -> _DistillBufferLike: ...
+    def build_training_batch(
+        self,
+        fresh_samples: list[ReplaySample],
+        domain: str = ...,
+        target_batch_size: int = ...,
+    ) -> ReplayBatch: ...
+
+
+class RouteDecisionLike(Protocol):
+    target_node_id: str
+    target_endpoint: str
+    decision_reason: str
+
+
+class RouterLike(Protocol):
+    def route_job(self, *, job_id: str, model_id: str, estimated_vram_gb: float) -> RouteDecisionLike: ...
+
+
 def dispatch_distill(
-    manager: ExperienceReplayManager,
+    manager: _DistillManagerLike,
     domain: str = "signature-style",
     epochs: int = 3,
     model: str = "qwen3.8-27b",
     adapter_name: str = DEFAULT_ADAPTER_NAME,
-    router: object | None = None,
+    router: RouterLike | None = None,
 ) -> DistillJob:
     """Dispatch a real LoRA distillation job for a domain buffer.
 
     Order of preference: local MLX training > mesh roaming target > honest
     failure. Never fabricates a completed job.
     """
-    buf = manager._get_or_create_buffer(domain)
+    buf = manager.get_or_create_buffer(domain)
     job_id = f"ft-job-{int(time.time())}"
     if len(buf) < DISTILL_MIN_SAMPLES:
         return DistillJob(
@@ -332,7 +369,7 @@ def dispatch_distill(
     out_dir = adapter_dir(manager.ws, adapter_name)
     if _mlx_lm_available():
         batch = manager.build_training_batch(
-            fresh_samples=list(buf._samples)[-8:],
+            fresh_samples=list(buf.samples)[-8:],
             domain=domain,
         )
         data_path = out_dir.parent / f"{domain}-train-{int(time.time())}.jsonl"

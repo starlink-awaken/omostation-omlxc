@@ -15,17 +15,11 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from omlxc.dataplane.experience_replay import (
-    DEFAULT_ADAPTER_NAME,
-    adapter_dir,
-    adapter_status,
-    dispatch_distill,
-)
-from omlxc.dataplane.hard_negative_miner import parse_sample
+from omlxc.dataplane.experience_replay import ReplayBatch, ReplaySample, RouterLike, adapter_status, dispatch_distill
 
 DOMAINS = ("gov", "tech", "email")
 ADAPTER_NAMES = {"gov": "lora-gov-v1", "tech": "lora-tech-v1", "email": "lora-email-v1"}
@@ -139,7 +133,7 @@ class LoraAdapterManager:
 
     # -- distill & evaluate --------------------------------------------------
 
-    def distill_all(self, epochs: int = 3, router: object | None = None) -> list[DomainDistillRecord]:
+    def distill_all(self, epochs: int = 3, router: RouterLike | None = None) -> list[DomainDistillRecord]:
         """Distill every domain shard via the T10-105 honest dispatch."""
         shards = partition_buffer_by_domain(self.buffer_path)
         records: list[DomainDistillRecord] = []
@@ -148,8 +142,10 @@ class LoraAdapterManager:
             if len(samples) < DISTILL_MIN_SAMPLES:
                 records.append(
                     DomainDistillRecord(
-                        domain=domain, adapter_name=ADAPTER_NAMES[domain],
-                        sample_count=len(samples), status="pending_samples",
+                        domain=domain,
+                        adapter_name=ADAPTER_NAMES[domain],
+                        sample_count=len(samples),
+                        status="pending_samples",
                         detail=f"{len(samples)}/{DISTILL_MIN_SAMPLES} samples in shard",
                     )
                 )
@@ -161,20 +157,24 @@ class LoraAdapterManager:
                 for s in samples:
                     f.write(json.dumps(s, ensure_ascii=False) + "\n")
             shard_mgr = _ShardManager(self.ws, shard_path)
-            job = dispatch_distill(shard_mgr, domain=domain, epochs=epochs,
-                                   adapter_name=ADAPTER_NAMES[domain], router=router)
+            job = dispatch_distill(
+                shard_mgr, domain=domain, epochs=epochs, adapter_name=ADAPTER_NAMES[domain], router=router
+            )
             records.append(
                 DomainDistillRecord(
-                    domain=domain, adapter_name=ADAPTER_NAMES[domain],
-                    sample_count=job.sample_count, status=job.status,
-                    detail=job.detail, adapter_path=job.adapter_path,
+                    domain=domain,
+                    adapter_name=ADAPTER_NAMES[domain],
+                    sample_count=job.sample_count,
+                    status=job.status,
+                    detail=job.detail,
+                    adapter_path=job.adapter_path,
                     target_node=job.target_node,
                 )
             )
         return records
 
     def list_adapters(self, include_eval: bool = False) -> list[dict[str, Any]]:
-        rows = []
+        rows: list[dict[str, Any]] = []
         for domain in DOMAINS:
             name = ADAPTER_NAMES[domain]
             st = adapter_status(name, self.ws)
@@ -201,35 +201,57 @@ class LoraAdapterManager:
 
 
 class _ShardManager:
-    """Minimal manager shape满足 dispatch_distill 的 duck-typing（域分片视图）。"""
+    """Minimal manager shape满足 dispatch_distill 的 duck-typing（域分片视图）。
+
+    Reconstructs real ReplaySample instances from the shard's raw JSONL rows —
+    dispatch_distill's local-MLX path reads .instruction/.output off whatever
+    build_training_batch hands back, so passing raw dicts through would raise
+    AttributeError the first time this ran against a real mlx_lm install.
+    """
 
     def __init__(self, ws: Path, shard_path: Path) -> None:
         self.ws = ws
         self.shard_path = shard_path
-        self._samples: list[dict[str, Any]] = []
+        valid_keys = ReplaySample.__dataclass_fields__.keys()
+        samples: list[ReplaySample] = []
         with shard_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    self._samples.append(json.loads(line))
+                if not line:
+                    continue
+                raw = json.loads(line)
+                filtered = {k: v for k, v in raw.items() if k in valid_keys}
+                samples.append(ReplaySample(**filtered))
+        self._samples = samples
 
-    def _get_or_create_buffer(self, domain: str):
+    def get_or_create_buffer(self, domain: str) -> _ShardBuffer:
         return _ShardBuffer(self._samples)
 
-    def build_training_batch(self, fresh_samples, domain: str = "", target_batch_size: int = 64):
-        from omlxc.dataplane.experience_replay import ReplayBatch
-
+    def build_training_batch(
+        self,
+        fresh_samples: list[ReplaySample],
+        domain: str = "",
+        target_batch_size: int = 64,
+    ) -> ReplayBatch:
         all_samples = fresh_samples or []
         return ReplayBatch(
-            batch_id=f"shard-{int(time.time())}", domain=domain,
-            fresh_samples=all_samples, replay_samples=[],
-            fresh_ratio=1.0, replay_ratio=0.0, total_samples=len(all_samples),
+            batch_id=f"shard-{int(time.time())}",
+            domain=domain,
+            fresh_samples=all_samples,
+            replay_samples=[],
+            fresh_ratio=1.0,
+            replay_ratio=0.0,
+            total_samples=len(all_samples),
         )
 
 
 class _ShardBuffer:
-    def __init__(self, samples: list[dict[str, Any]]) -> None:
+    def __init__(self, samples: list[ReplaySample]) -> None:
         self._samples = samples
+
+    @property
+    def samples(self) -> list[ReplaySample]:
+        return self._samples
 
     def __len__(self) -> int:
         return len(self._samples)
