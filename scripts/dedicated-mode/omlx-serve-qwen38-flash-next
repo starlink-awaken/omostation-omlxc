@@ -1,0 +1,77 @@
+#!/opt/homebrew/bin/python3
+"""omlx-serve-qwen38-flash-next — Qwen3.8-Flash-Next 专用服务入口 v2 (2026-09-05)
+
+v2 变更: 吸取 2026-09-05 崩溃教训, 加入与 smoke 相同的四重约束。
+零侵入加载 qwen4_exp 架构(sys.modules 注入, 不碰 site-packages);
+等 mlx-lm 官方合并 qwen4_exp (PR #1788) 后本 wrapper 退役。
+
+用法:  omlx-serve-qwen38-flash-next [--port 8197]
+"""
+import importlib.util
+import subprocess
+import sys
+
+MODEL_DIR = "/Users/xiamingxing/Models/Qwen3.8-Flash-Next-MLX-4bit"
+MODEL_BYTES = 103_770_199_081
+PHYSICAL_GB = 128.0
+MIN_RESERVE_GB = 8.0
+WIRED_LIMIT_GB = 86  # fallback, preflight() 里按可用内存动态收缩
+ARCH_NAME = "mlx_lm.models.qwen4_exp"
+
+
+def die(msg):
+    print(f"❌ {msg}")
+    sys.exit(1)
+
+
+def available_gb():
+    out = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
+    page = 16384
+    total = 0.0
+    for line in out.splitlines():
+        for key in ("Pages free", "Pages inactive", "Pages speculative"):
+            if line.startswith(key):
+                n = int(line.split(":")[1].strip().rstrip("."))
+                total += n * page / 1e9
+    return total
+
+
+def preflight():
+    global WIRED_LIMIT_GB
+    avail = available_gb()
+    wired = min(MODEL_BYTES / 1e9 + 2, avail - MIN_RESERVE_GB)
+    if wired < 40:
+        die(f"可用 {avail:.1f}GB, wired 只能给 {wired:.0f}GB, 拒绝启动。请先清场")
+    WIRED_LIMIT_GB = int(wired)
+    print(f"✅ 预检: 可用 {avail:.1f}GB → wired {WIRED_LIMIT_GB}GB"
+          + ("" if WIRED_LIMIT_GB >= MODEL_BYTES / 1e9 else f" (SSD 分页兜底约 {MODEL_BYTES/1e9 - WIRED_LIMIT_GB:.0f}GB)"))
+
+    import mlx.core as mx
+    mx.metal.set_wired_limit(WIRED_LIMIT_GB * 10**9)
+    print(f"✅ wired limit: {WIRED_LIMIT_GB}GB")
+
+
+def main():
+    port = 8197
+    argv = sys.argv[1:]
+    if "--port" in argv:
+        port = int(argv[argv.index("--port") + 1])
+
+    preflight()
+
+    arch_path = f"{MODEL_DIR}/qwen4_exp.py"
+    spec = importlib.util.spec_from_file_location(ARCH_NAME, arch_path)
+    if spec is None or spec.loader is None:
+        die(f"找不到自定义架构文件: {arch_path}（模型目录是否被移动了？）")
+        return
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[ARCH_NAME] = mod
+    spec.loader.exec_module(mod)
+
+    from mlx_lm.server import main as server_main
+    sys.argv = ["mlx_lm.server", "--model", MODEL_DIR, "--port", str(port)]
+    server_main()
+
+
+if __name__ == "__main__":
+    main()
