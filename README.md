@@ -1,3 +1,9 @@
+---
+project: omlxc
+type: ssot
+owner: governance-team
+last_updated: 2026-09-06
+---
 # omlxc
 
 `omlxc` is a private local compute hub. Version `3.4.0` (ADR-0433) provides a persistent
@@ -210,3 +216,19 @@ uv pip install --python /tmp/omlxc-smoke/bin/python "${wheels[0]}"
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) for the
 development and disclosure boundaries.
+
+---
+
+## 项目状态 (动态数据)
+
+| 指标 | 权威读源 | 说明 |
+|------|----------|------|
+| 版本 | `pyproject.toml` → `[project.version]` | 以 pyproject.toml 为准 |
+| 测试数 | `pytest --collect-only -q` | 动态计数 |
+| 代码行数 | `find src -name "*.py" \| wc -l` | 以实际文件为准 |
+| 源文件数 | `find src -name "*.py" \| wc -l` | 以实际文件为准 |
+| 测试文件数 | `find tests -name "*.py" \| wc -l` | 以实际文件为准 |
+
+> **doc-ssot 契约**: 上表中的所有数字均为易变事实, 不在本文件硬编码. 运行权威读源命令获取实时值.
+> 模板: `.omo/standards/readme-template.md` | 检测: `bin/gac/check-readme-hardcoded.py`
+
