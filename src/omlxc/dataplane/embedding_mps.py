@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 # 100% 本地红线: 模型一律走本地缓存, 禁止运行时联网拉取
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -26,7 +26,7 @@ MODEL_TIERS = {
     "full": "BAAI/bge-m3",  # dense+sparse+multi-vec, multilingual (~2.2GB)
 }
 DEFAULT_TIER = "fast"
-RESOURCE_CAP = {"max_memory_fraction": 0.35, "batch_size": 32}
+RESOURCE_CAP: dict[str, float] = {"max_memory_fraction": 0.35, "batch_size": 32}
 LATENCY_BUDGET_MS = {"single_encode": 15.0, "rerank_top50": 30.0}
 
 
@@ -51,7 +51,7 @@ class EmbeddingEngine:
         self.device = device or resolve_device()
         self._model = SentenceTransformer(self.model_name, device=self.device)
 
-    def encode(self, texts: list[str], batch_size: int = RESOURCE_CAP["batch_size"]) -> list[list[float]]:
+    def encode(self, texts: list[str], batch_size: int = int(RESOURCE_CAP["batch_size"])) -> list[list[float]]:
         """Dense vectors, fp32 (no lossy quant — BET non_goal)."""
         vecs = self._model.encode(texts, batch_size=batch_size, normalize_embeddings=True, convert_to_numpy=True)
         return vecs.astype("float32").tolist()
@@ -74,7 +74,10 @@ class EmbeddingEngine:
 
         m3 = BGEM3FlagModel(self.model_name, use_fp16=False)
         out = m3.encode(texts, return_sparse=True)
-        idf = out.get("lexical_weights") or {}
+        # encode()'s declared return spans dense/sparse/colbert regardless of which
+        # flags were passed; requesting only return_sparse=True guarantees
+        # lexical_weights is List[Dict[str, float]] at this call site specifically.
+        idf = cast("list[dict[str, float]]", out.get("lexical_weights") or [])
         return [{str(k): float(v) for k, v in w.items()} for w in idf]
 
     @staticmethod
