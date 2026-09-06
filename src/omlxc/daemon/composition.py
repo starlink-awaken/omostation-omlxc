@@ -378,6 +378,7 @@ class CatalogProbe:
         except asyncio.CancelledError:
             raise
         except Exception:
+            _logger.exception("backend authorization failed: %s", backend.id)
             self._fail_authorization(backend.id)
             self._diagnostics[backend.id] = NodeDiagnosticCode.AUTHORIZATION_DENIED
             return
@@ -393,9 +394,11 @@ class CatalogProbe:
         except asyncio.CancelledError:
             raise
         except TimeoutError:
+            _logger.exception("backend probe timed out: %s", backend.id)
             self._fail_stale(backend.id, authorized=authorized, local=local)
             self._diagnostics[backend.id] = NodeDiagnosticCode.TIMEOUT
         except Exception:
+            _logger.exception("backend probe failed: %s", backend.id)
             self._fail_stale(backend.id, authorized=authorized, local=local)
             self._diagnostics[backend.id] = NodeDiagnosticCode.PROBE_FAILED
 
@@ -1577,7 +1580,13 @@ def _node_diagnostic_code(
             return NodeDiagnosticCode.INCOMPATIBLE
         if error.code is AdapterErrorCode.MODEL_UNAVAILABLE:
             return NodeDiagnosticCode.MODEL_UNAVAILABLE
-        return NodeDiagnosticCode.PROBE_FAILED
+        # Any other adapter error (e.g. UNSUPPORTED for an optional,
+        # unconfigured control channel) is advisory, not fatal by itself —
+        # fall through to the reachable/compatible/model_available checks
+        # below instead of short-circuiting every unmatched code to
+        # PROBE_FAILED. A backend that is reachable, protocol-compatible,
+        # and has its model available must not be misreported as failed
+        # just because an optional side-channel logged a note.
     if not capability.reachable:
         return NodeDiagnosticCode.UNREACHABLE
     if not capability.compatible:
