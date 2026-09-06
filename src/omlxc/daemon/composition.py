@@ -1014,15 +1014,14 @@ class ProductionControlService:
             "nodes_count": len(self._config.nodes),
             "models_count": len(self._config.models),
             "note": (
-                "config.toml on disk differs from what this daemon loaded; "
-                "run `omlxc daemon restart` to apply it"
+                "config.toml on disk differs from what this daemon loaded; run `omlxc daemon restart` to apply it"
                 if stale
                 else "config on disk matches the running daemon; no restart needed"
             ),
         }
 
     async def _create_operation(self, kind: str, model_id: str, key: str) -> Job:
-        placement = self._placement_for_model(model_id)
+        placement = self._placement_for_model(model_id, prefer_loaded=kind == "unload")
         fingerprint = hashlib.sha256(
             json.dumps({"kind": kind, "model_id": model_id}, separators=(",", ":"), sort_keys=True).encode()
         ).hexdigest()
@@ -1134,12 +1133,21 @@ class ProductionControlService:
             ),
         )
 
-    def _placement_for_model(self, model_id: str) -> PlacementSnapshot:
+    def _placement_for_model(self, model_id: str, *, prefer_loaded: bool | None = None) -> PlacementSnapshot:
         canonical_model_id = self._normalized_model_id(model_id)
         candidates = [item for item in self._catalog.get() if item.model_id == canonical_model_id]
         if not candidates:
             raise KeyError("model has no configured placement")
-        return candidates[0]
+        if prefer_loaded is not None:
+            # An unload has to target the backend that actually holds the model, and a
+            # load should prefer one that does not. Catalog order alone picks whichever
+            # placement happens to come first, so a model resident on one backend gets
+            # its unload dispatched to another — the job fails and the memory stays put.
+            matching = [item for item in candidates if item.loaded is prefer_loaded]
+            if matching:
+                candidates = matching
+        eligible = [item for item in candidates if is_static_eligible(item)]
+        return (eligible or candidates)[0]
 
     def _placement_from_reference(self, reference: str | None) -> PlacementSnapshot:
         if reference is None or not reference.startswith("placement:"):
@@ -1381,9 +1389,7 @@ def build_configured_adapters(
     adapters: dict[str, BackendAdapter] = {}
     # idle_ttl_seconds=0 表示策略里显式声明"不设超时", 只有正数才是一个
     # 合法的 lms --ttl 值 (LmsLoadOptions.ttl_seconds 要求 ge=1)。
-    default_ttl_seconds = (
-        config.policies.idle_ttl_seconds if config.policies.idle_ttl_seconds else None
-    )
+    default_ttl_seconds = config.policies.idle_ttl_seconds if config.policies.idle_ttl_seconds else None
     for backend in config.backends:
         # LM Studio 系后端: 数据面 ensure_loaded 触发的 lms load 必须显式带上
         # 上下文限制 (取该 backend 全部 placement 的最小 context_limit)。
