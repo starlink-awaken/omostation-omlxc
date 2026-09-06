@@ -1,0 +1,181 @@
+#!/bin/bash
+# omlx-dedicated-mode — 大模型专用模式的进入/退出/检查
+#
+# 为什么需要它
+# ------------
+# macOS 默认把 GPU 可 wire 的内存限制在物理内存的 ~75% (128GB 机器 = 96GB)。
+# Qwen3.8-Flash-Next 4bit 是 103.8GB, 在默认设置下数学上就不可能全驻留 ——
+# 至少 8GB 权重必须走磁盘换页。而这是稀疏 MoE, 每个 token 路由到不同专家,
+# 换页接近全权重随机读: 实测掉到 0.6 tok/s (社区同款硬件 33 tok/s)。
+#
+# 提高 wired 上限能解决, 但 wired 内存按定义不可换出 —— 留给 macOS 的余量
+# 不够就是硬卡死, 不是变慢。所以进入前必须真清场, 而且必须先停掉自动拉起机制。
+#
+# 两个自动拉起机制 (不停掉它们, 专用模式必然崩)
+# ---------------------------------------------
+# 1. com.omlxc.watchdog (launchd, 每 300s)
+#    探测 127.0.0.1:8000 不通就 `pkill -x oMLX` + `open -a oMLX`,
+#    App 起来自动加载模型吃掉 ~52GB。
+#    见 projects/omlxc/scripts/pipeline-watchdog.sh
+# 2. omlxcd 的 resident reconcile 循环 (每 300s)
+#    把 resident=true 的 placement 重新加载回来。
+#    见 src/omlxc/daemon/composition.py:1302 _resident_targets
+#
+# 时序上这是最阴的坑: 清场 → 设 wired → 加载模型都成功了, 5 分钟后
+# 看门狗把 oMLX 拉起来, 此时物理内存已被 wire 掉大半且不可回收 → 死机。
+#
+# 用法
+# ----
+#   omlx-dedicated-mode status   查看状态、内存大户、守护进程状态
+#   omlx-dedicated-mode enter    停守护 + 提高 wired 上限 (需要 sudo)
+#   omlx-dedicated-mode exit     恢复守护 + 恢复默认上限 (需要 sudo)
+#
+# sysctl 设置不持久化, 重启后自动回默认。但 launchd 服务的停用会持久 ——
+# 所以 exit 一定要跑, 否则重启后 watchdog 仍是停的, 算力池失去自愈。
+
+set -uo pipefail
+
+WIRED_MB=114688   # 112GB: 模型 103.8 + KV/激活 ~5 = ~109GB 工作集, 给 macOS 留 16GB
+MIN_AVAIL_GB=109  # 低于此值拒绝进入 —— wired 不可换出, 赌不起
+MODEL_DIR="${OMLX_FLASH_NEXT_DIR:-/Users/xiamingxing/Models/Qwen3.8-Flash-Next-MLX-4bit}"
+
+WATCHDOG_LABEL="com.omlxc.watchdog"
+WATCHDOG_PLIST="$HOME/Library/LaunchAgents/${WATCHDOG_LABEL}.plist"
+DAEMON_LABEL="com.omlxc.daemon"
+DAEMON_PLIST="$HOME/Library/LaunchAgents/${DAEMON_LABEL}.plist"
+STATE_FILE="$HOME/.config/omlxc/dedicated-mode.state"
+
+avail_gb() {
+    vm_stat | awk '
+        /Pages free/        {gsub(/[ .]/,"",$3); f=$3}
+        /Pages inactive/    {gsub(/[ .]/,"",$3); i=$3}
+        /Pages speculative/ {gsub(/[ .]/,"",$3); s=$3}
+        END {printf "%.1f", (f+i+s)*16384/1024/1024/1024}'
+}
+
+current_limit() {
+    local v
+    v=$(sysctl -n iogpu.wired_limit_mb 2>/dev/null || echo 0)
+    if [ "$v" = "0" ]; then echo "默认 (~96GB)"; else echo "$((v / 1024))GB"; fi
+}
+
+svc_loaded() {  # 服务是否在 launchd 里注册着
+    launchctl list 2>/dev/null | grep -q "	${1}\$"
+}
+
+hogs() {
+    /bin/ps aux | awk 'NR>1 && $6 > 2097152 {printf "  %6.1fGB  %s\n", $6/1024/1024, $11}' \
+        | sort -rn | head -8
+}
+
+cmd_status() {
+    echo "wired 上限:   $(current_limit)"
+    echo "可用内存:     $(avail_gb) GB / 128 GB   (进入需 ≥ ${MIN_AVAIL_GB} GB)"
+    echo -n "模型:         $MODEL_DIR"
+    if [ -d "$MODEL_DIR" ]; then
+        echo "  ($(find "$MODEL_DIR" -type f -exec stat -f '%z' {} \; \
+            | awk '{s+=$1} END{printf "%.1f GB", s/1e9}'))"
+    else
+        echo "  ⚠️ 不存在"
+    fi
+    echo
+    echo "自动拉起机制 (专用模式下必须是 stopped):"
+    printf "  %-24s %s\n" "$WATCHDOG_LABEL" \
+        "$(svc_loaded "$WATCHDOG_LABEL" && echo '⚠️ running — 5 分钟内会拉起 oMLX' || echo '✅ stopped')"
+    printf "  %-24s %s\n" "$DAEMON_LABEL" \
+        "$(svc_loaded "$DAEMON_LABEL" && echo '⚠️ running — resident 模型会被重载' || echo '✅ stopped')"
+    echo
+    echo "占用 >2GB 的进程:"
+    hogs
+    echo
+    echo "swap 已用:    $(sysctl -n vm.swapusage | sed 's/.*used = \([0-9.]*M\).*/\1/')"
+    echo "              (专用模式下持续增长 = 危险信号, 立即 exit)"
+    [ -f "$STATE_FILE" ] && echo && echo "⚠️ 检测到未清理的专用模式状态: $STATE_FILE"
+    return 0
+}
+
+stop_service() {  # $1=label $2=plist
+    if svc_loaded "$1"; then
+        launchctl bootout "gui/$(id -u)/$1" 2>/dev/null \
+            || launchctl unload "$2" 2>/dev/null
+        echo "  已停用 $1"
+        echo "$1" >> "$STATE_FILE"
+    else
+        echo "  $1 本就未运行"
+    fi
+}
+
+start_service() {  # $1=label $2=plist
+    if svc_loaded "$1"; then
+        echo "  $1 已在运行"
+    else
+        launchctl bootstrap "gui/$(id -u)" "$2" 2>/dev/null \
+            || launchctl load "$2" 2>/dev/null
+        if svc_loaded "$1"; then
+            echo "  已恢复 $1"
+        else
+            echo "  ⚠️ $1 恢复失败 —— 请手动: launchctl load $2"
+        fi
+    fi
+}
+
+cmd_enter() {
+    echo "▶ 停用自动拉起机制 (不停掉它们, 5 分钟后必崩)"
+    mkdir -p "$(dirname "$STATE_FILE")"
+    : > "$STATE_FILE"
+    stop_service "$WATCHDOG_LABEL" "$WATCHDOG_PLIST"
+    stop_service "$DAEMON_LABEL" "$DAEMON_PLIST"
+    echo
+
+    echo "▶ 检查清场情况"
+    local avail
+    avail=$(avail_gb)
+    echo "  可用内存: ${avail} GB"
+    if [ "$(echo "$avail < $MIN_AVAIL_GB" | bc)" = "1" ]; then
+        echo
+        echo "❌ 可用内存不足 ${MIN_AVAIL_GB}GB, 拒绝进入。"
+        echo "   wired 内存不可换出 —— 强行进入的后果是硬卡死, 不是变慢。"
+        echo
+        echo "   还占着内存的进程:"
+        hogs
+        echo
+        echo "   常见大头: oMLX App (菜单栏退出, 不要只 kill omlx-server)"
+        echo "            LM Studio 已加载模型 (GUI 里 eject)"
+        echo "            CLI agent: crush / agy / droid / kilo / opencode"
+        echo
+        echo "   守护进程已停用, 清场后重跑 enter 即可 (无需先 exit)。"
+        exit 1
+    fi
+    echo
+
+    echo "▶ 提高 wired 上限到 $((WIRED_MB / 1024))GB (需要 sudo)"
+    if ! sudo sysctl iogpu.wired_limit_mb=$WIRED_MB; then
+        echo "❌ sysctl 失败, 正在回滚守护进程"
+        cmd_exit
+        exit 1
+    fi
+    echo
+    echo "✅ 已进入专用模式"
+    echo "   跑模型:  omlx-qwen38-flash-next-smoke   (或 omlx-serve-qwen38-flash-next)"
+    echo "   跑完必须: omlx-dedicated-mode exit      ← 不跑的话算力池自愈能力一直是关的"
+}
+
+cmd_exit() {
+    echo "▶ 恢复默认 wired 上限 (需要 sudo)"
+    sudo sysctl iogpu.wired_limit_mb=0
+    echo
+    echo "▶ 恢复自动拉起机制"
+    start_service "$WATCHDOG_LABEL" "$WATCHDOG_PLIST"
+    start_service "$DAEMON_LABEL" "$DAEMON_PLIST"
+    rm -f "$STATE_FILE"
+    echo
+    echo "✅ 已退出专用模式, 当前 wired 上限: $(current_limit)"
+    echo "   oMLX App 会被 watchdog 在 5 分钟内自动拉起 (或手动 open -a oMLX)"
+}
+
+case "${1:-status}" in
+    status) cmd_status ;;
+    enter)  cmd_enter ;;
+    exit)   cmd_exit ;;
+    *)      echo "用法: omlx-dedicated-mode [status|enter|exit]"; exit 1 ;;
+esac

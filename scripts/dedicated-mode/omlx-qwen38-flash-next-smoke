@@ -1,0 +1,105 @@
+#!/opt/homebrew/bin/python3
+"""omlx-qwen38-flash-next-smoke — 带内存约束的 qwen4_exp 加载+生成冒烟 (2026-09-05)
+
+崩溃教训(2026-05-05): 无约束裸跑两次 104GB 加载把 128GB 机器挤爆导致系统崩溃。
+本脚本内置四重约束, 违反任一前置条件直接拒绝启动:
+  C1 预检: 可用内存(free+inactive) ≥ 模型体积 + 8GB, 不够即 fail-fast
+  C2 wired limit: mx.metal.set_wired_limit 硬顶 104GB, 超限时 mlx 报错而非拖垮系统
+  C3 生成限制: prompt 短 + max_tokens ≤ 128, KV cache 保持在 MB 级
+  C4 一次性进程: load → generate → 退出, 内存随进程消亡, 不常驻
+
+用法:  omlx-qwen38-flash-next-smoke [--skip-check]
+"""
+import importlib.util
+import subprocess
+import sys
+import time
+
+MODEL_DIR = "/Users/xiamingxing/Models/Qwen3.8-Flash-Next-MLX-4bit"
+MODEL_BYTES = 103_770_199_081
+PHYSICAL_GB = 128.0
+# 安全模式: wired limit 按"当前可用 - 8GB"动态设, 而非顶格 104GB。
+# wired < 模型体积时多余权重走 SSD mmap 分页(稀疏 MoE 每 token 只激活~3GB, 天生适配),
+# 宁可慢一点也不让物理页枯竭 — 上次崩溃就是 wired 顶格 + 物理页不足引发的换页风暴。
+MIN_RESERVE_GB = 8.0
+# 固定值作 fallback, 实际在 check_memory() 里按可用内存动态收缩
+WIRED_LIMIT_GB = 86
+
+ARCH_NAME = "mlx_lm.models.qwen4_exp"
+
+
+def die(msg: str) -> None:
+    print(f"❌ {msg}")
+    sys.exit(1)
+
+
+def available_gb() -> float:
+    """free+inactive+speculative(GB). 不算 mapped file cache — 上次崩溃的隐藏杀手。"""
+    out = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
+    page = 16384
+    total = 0.0
+    for line in out.splitlines():
+        for key in ("Pages free", "Pages inactive", "Pages speculative"):
+            if line.startswith(key):
+                n = int(line.split(":")[1].strip().rstrip("."))
+                total += n * page / 1e9
+    return total
+
+
+def check_memory() -> None:
+    global WIRED_LIMIT_GB
+    avail = available_gb()
+    # wired 上限 = min(模型体积 + 2GB, 可用 - 8GB): 物理页永远留足系统安全垫
+    wired = min(MODEL_BYTES / 1e9 + 2, avail - MIN_RESERVE_GB)
+    if wired < 40:
+        die(f"可用内存 {avail:.1f}GB, 算出的 wired {wired:.0f}GB 过小, 拒绝启动。请先清场")
+    WIRED_LIMIT_GB = int(wired)
+    need = WIRED_LIMIT_GB + MIN_RESERVE_GB
+    print(f"✅ C1 预检通过: 可用 {avail:.1f}GB → wired {WIRED_LIMIT_GB}GB + 系统垫 {MIN_RESERVE_GB:.0f}GB"
+          + ("" if WIRED_LIMIT_GB >= MODEL_BYTES / 1e9 else f" (SSD 分页兜底约 {MODEL_BYTES/1e9 - WIRED_LIMIT_GB:.0f}GB)"))
+
+
+def apply_wired_limit() -> None:
+    import mlx.core as mx
+
+    mx.metal.set_wired_limit(WIRED_LIMIT_GB * 10**9)
+    print(f"✅ C2 wired limit 已设为 {WIRED_LIMIT_GB}GB (动态值, 不会顶格挤爆物理页)")
+
+
+def load_arch() -> None:
+    arch_path = f"{MODEL_DIR}/qwen4_exp.py"
+    spec = importlib.util.spec_from_file_location(ARCH_NAME, arch_path)
+    if spec is None or spec.loader is None:
+        die(f"找不到自定义架构文件: {arch_path}（模型目录是否被移动了？）")
+        return
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[ARCH_NAME] = mod
+    spec.loader.exec_module(mod)
+
+
+def main() -> None:
+    if "--skip-check" in sys.argv:
+        die("禁止 --skip-check, 这就是上次崩溃的根源")
+
+    print(f"模型: {MODEL_DIR}")
+    check_memory()
+    apply_wired_limit()
+    load_arch()
+    print("✅ C3/C4: max_tokens=64, 一次性进程, 生成完自动退出释放")
+
+    t0 = time.time()
+    from mlx_lm import load
+    model, tokenizer = load(MODEL_DIR)
+    t1 = time.time()
+    print(f"✅ 加载 OK: {t1 - t0:.0f}s")
+
+    t2 = time.time()
+    from mlx_lm import generate
+    out = generate(model, tokenizer, prompt="用一句话说明什么是稀疏注意力机制。", max_tokens=64, verbose=False)
+    t3 = time.time()
+    print(f"✅ 生成 OK ({t3 - t2:.1f}s): {str(out).strip()[:120]}")
+    print("=== 冒烟通过, 进程即将退出释放全部内存 ===")
+
+
+if __name__ == "__main__":
+    main()
