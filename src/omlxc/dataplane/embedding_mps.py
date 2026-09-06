@@ -53,7 +53,11 @@ class EmbeddingEngine:
 
     def encode(self, texts: list[str], batch_size: int = int(RESOURCE_CAP["batch_size"])) -> list[list[float]]:
         """Dense vectors, fp32 (no lossy quant — BET non_goal)."""
-        vecs = self._model.encode(texts, batch_size=batch_size, normalize_embeddings=True, convert_to_numpy=True)
+        # sentence-transformers' encode() overload set doesn't resolve for this call
+        # shape under strict mode; convert_to_numpy=True does return ndarray at runtime.
+        vecs = self._model.encode(  # pyright: ignore[reportUnknownMemberType]
+            texts, batch_size=batch_size, normalize_embeddings=True, convert_to_numpy=True
+        )
         return vecs.astype("float32").tolist()
 
     def encode_sparse(self, texts: list[str]) -> list[dict[str, float]]:
@@ -95,8 +99,13 @@ class EmbeddingEngine:
         alpha: float = 0.7,
     ) -> list[float]:
         """Dense cosine + sparse overlap, alpha-weighted (dense default 0.7)."""
-        dense_q = self._model.encode([query], normalize_embeddings=True, convert_to_numpy=True)[0]
-        dense_docs = self._model.encode(docs, normalize_embeddings=True, convert_to_numpy=True)
+        # Same sentence-transformers overload gap as encode() above.
+        dense_q = self._model.encode(  # pyright: ignore[reportUnknownMemberType]
+            [query], normalize_embeddings=True, convert_to_numpy=True
+        )[0]
+        dense_docs = self._model.encode(  # pyright: ignore[reportUnknownMemberType]
+            docs, normalize_embeddings=True, convert_to_numpy=True
+        )
         dense_scores = (dense_docs @ dense_q).tolist()
         sparse_q = self._tf_weights(query) if self.tier == "fast" else self.encode_sparse([query])[0]
         sparse_docs = [self._tf_weights(d) for d in docs] if self.tier == "fast" else self.encode_sparse(docs)
@@ -110,7 +119,9 @@ class EmbeddingEngine:
         samples: list[float] = []
         for _ in range(runs):
             t0 = time.monotonic()
-            self._model.encode([text], normalize_embeddings=True, convert_to_numpy=True)
+            self._model.encode(  # pyright: ignore[reportUnknownMemberType]
+                [text], normalize_embeddings=True, convert_to_numpy=True
+            )
             samples.append((time.monotonic() - t0) * 1000)
         samples.sort()
         return samples[len(samples) // 2]

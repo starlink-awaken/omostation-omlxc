@@ -57,10 +57,17 @@ class RerankEngine:
             t0 = time.monotonic()
             if self.backend == "cross-encoder":
                 pairs = [(query, d) for d in docs]
-                scores = self._ce.predict(pairs).tolist()
+                # sentence-transformers' CrossEncoder.predict overload set doesn't
+                # resolve under strict mode for this call shape.
+                scores = self._ce.predict(pairs).tolist()  # pyright: ignore[reportUnknownMemberType]
             else:
-                qv = self._fallback_bi.encode([query], normalize_embeddings=True, convert_to_numpy=True)[0]
-                dv = self._fallback_bi.encode(docs, normalize_embeddings=True, convert_to_numpy=True)
+                # Same overload gap as above, on SentenceTransformer.encode.
+                qv = self._fallback_bi.encode(  # pyright: ignore[reportUnknownMemberType]
+                    [query], normalize_embeddings=True, convert_to_numpy=True
+                )[0]
+                dv = self._fallback_bi.encode(  # pyright: ignore[reportUnknownMemberType]
+                    docs, normalize_embeddings=True, convert_to_numpy=True
+                )
                 scores = (dv @ qv).tolist()
             samples.append((time.monotonic() - t0) * 1000)
             order = sorted(range(len(docs)), key=lambda i: -scores[i])
