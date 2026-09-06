@@ -73,11 +73,16 @@ def reclaim_metal_memory_pool() -> dict[str, Any]:
 
     reclaimed_stats = {"gc_collected": 0, "metal_cleared": False}
     try:
-        # If mlx is available in python environment
-        import mlx.core as mx
+        # mlx isn't one of omlxc's own dependencies — it's only present on a real
+        # MLX-serving node, hence the try/except rather than a hard import.
+        import mlx.core as mx  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
 
-        if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
-            mx.metal.clear_cache()
+        has_metal_cache = hasattr(mx, "metal") and hasattr(
+            mx.metal,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+            "clear_cache",
+        )
+        if has_metal_cache:
+            mx.metal.clear_cache()  # pyright: ignore[reportUnknownMemberType]
             reclaimed_stats["metal_cleared"] = True
     except Exception:
         pass
