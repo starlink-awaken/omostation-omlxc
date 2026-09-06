@@ -234,6 +234,7 @@ class TailscaleAdapter:
         *,
         policies: tuple[TailscaleNodePolicy, ...],
         tailscale_executable: Path,
+        socket_path: Path | None = None,
         process_runner: ProcessRunner | None = None,
         snapshot_ttl_seconds: int = 30,
         monotonic_clock: Callable[[], float] | None = None,
@@ -243,6 +244,7 @@ class TailscaleAdapter:
         trusted_executable = _validate_trusted_executable(tailscale_executable)
         self._policies = policies
         self._trusted_executable = trusted_executable
+        self._socket_path = socket_path
         self._runner = process_runner or BoundedProcessRunner(
             TAILSCALE_STATUS_OUTPUT_LIMIT,
             env=TAILSCALE_PROCESS_ENV,
@@ -306,7 +308,9 @@ class TailscaleAdapter:
                 raise ValueError
         except ValueError:
             raise TailscaleFailure(TailscaleErrorCode.SPAWN) from None
-        argv = (str(immediate.path), *TAILSCALE_STATUS_ARGS)
+        # --socket is a global flag: it must precede the subcommand, not follow it.
+        socket_args = (f"--socket={self._socket_path}",) if self._socket_path is not None else ()
+        argv = (str(immediate.path), *socket_args, *TAILSCALE_STATUS_ARGS)
         try:
             output = await self._runner(argv, TAILSCALE_STATUS_TIMEOUT)
         except asyncio.CancelledError:
