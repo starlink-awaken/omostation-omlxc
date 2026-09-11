@@ -1425,9 +1425,17 @@ def build_configured_adapter(
     default_ttl_seconds: int | None = None,
 ) -> BackendAdapter:
     if backend.kind is BackendKind.OMLX_APP:
-        adapter: object = OmlxAppAdapter(backend_id=backend.id, base_url=backend.base_url)
+        adapter: object = OmlxAppAdapter(
+            backend_id=backend.id,
+            base_url=backend.base_url,
+            probe_model_id=backend.probe_model_id,
+        )
     elif backend.kind is BackendKind.OLLAMA:
-        adapter = OllamaAdapter(backend_id=backend.id, base_url=backend.base_url)
+        adapter = OllamaAdapter(
+            backend_id=backend.id,
+            base_url=backend.base_url,
+            probe_model_id=backend.probe_model_id,
+        )
     else:
         control_authorizer = (
             _lm_control_authorizer(backend, tailscale)
