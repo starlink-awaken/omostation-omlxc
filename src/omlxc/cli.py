@@ -610,6 +610,38 @@ def nodes_diagnose(
     )
 
 
+@nodes_app.command("reset-inventory-baseline")
+def nodes_reset_inventory_baseline(
+    node_id: Annotated[str, typer.Argument()],
+    backend_id: Annotated[str, typer.Argument()],
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Accept the currently-observed model count as the new inventory baseline
+    for one backend, clearing its drop warning.
+
+    The inventory-drop high-water mark only ever ratchets up, by design: a
+    transient scan glitch must never silently lower the bar and mask a real
+    regression. But that also means an intentional model-catalog shrink (local
+    model files removed on purpose) leaves a stale, unreachable baseline
+    warning forever. Use this once, after confirming the drop is expected
+    (e.g. `omlxc doctor` / direct requests against the affected models still
+    succeed), to accept the new count.
+    """
+    action = f"reset inventory baseline for {node_id}/{backend_id}"
+    _require_r1(action, yes=yes, json_output=json_output)
+
+    async def operation(client: DaemonClient) -> DaemonEnvelope:
+        return await client.reset_inventory_baseline(node_id, backend_id)
+
+    _execute(
+        operation,
+        json_output=json_output,
+        renderer=_render_mapping,
+        error_context=ErrorContext.GENERAL,
+    )
+
+
 @models_app.command("list")
 def models_list(
     json_output: Annotated[bool, typer.Option("--json")] = False,

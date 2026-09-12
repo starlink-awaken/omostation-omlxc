@@ -94,6 +94,12 @@ class DaemonClient:
     async def node_diagnostics(self, node_id: str) -> DaemonEnvelope:
         return await self._request("GET", f"/api/v1/nodes/{quote(node_id, safe='')}/diagnostics")
 
+    async def reset_inventory_baseline(self, node_id: str, backend_id: str) -> DaemonEnvelope:
+        return await self._request(
+            "POST",
+            f"/api/v1/nodes/{quote(node_id, safe='')}/backends/{quote(backend_id, safe='')}/inventory-baseline/reset",
+        )
+
     async def models(self, *, after: str | None = None, limit: int = 100) -> DaemonEnvelope:
         return await self._request("GET", "/api/v1/models", params=_page_params(after=after, limit=limit))
 

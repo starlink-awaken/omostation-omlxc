@@ -551,6 +551,36 @@ class CatalogProbe:
         for record in records:
             self._high_water[(record.node_id, record.backend_id)] = record.high_water_count
 
+    async def reset_inventory_baseline(self, node_id: str, backend_id: str) -> Mapping[str, object] | None:
+        """Accept the currently-observed inventory count as the new baseline for
+        one backend, clearing its drop warning. Only meaningful for a backend
+        with an active drop (there is nothing to accept otherwise): returns
+        `None` when the backend has no active drop, so the caller can tell
+        "nothing to reset" apart from "reset applied"."""
+        key = (node_id, backend_id)
+        drop = self._drops.get(key)
+        if drop is None:
+            return None
+        old_baseline, current = drop
+        store = self._inventory_store()
+        if store is not None:
+            await store.reset_inventory_high_water(
+                InventoryHighWater(
+                    node_id=node_id,
+                    backend_id=backend_id,
+                    high_water_count=current,
+                    observed_at=self._now(),
+                )
+            )
+        self._high_water[key] = current
+        self._drops.pop(key, None)
+        return {
+            "node_id": node_id,
+            "backend_id": backend_id,
+            "old_baseline": old_baseline,
+            "new_baseline": current,
+        }
+
     async def _observe_inventory(
         self,
         backend: BackendConfig,
@@ -835,6 +865,12 @@ class ProductionControlService:
             return None
         snapshots = tuple(snapshot for snapshot in self._catalog.get() if snapshot.node_id == node.id)
         return self._node_view(node, snapshots)
+
+    async def reset_inventory_baseline(self, node_id: str, backend_id: str) -> Mapping[str, object] | None:
+        node = next((item for item in self._config.nodes if item.id == node_id), None)
+        if node is None or not any(backend.id == backend_id for backend in self._config.backends):
+            return None
+        return await self._probe.reset_inventory_baseline(node_id, backend_id)
 
     async def diagnose_node(self, node_id: str) -> NodeDiagnosticReport | None:
         node = next((item for item in self._config.nodes if item.id == node_id), None)

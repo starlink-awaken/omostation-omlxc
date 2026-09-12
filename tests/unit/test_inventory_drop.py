@@ -274,3 +274,88 @@ async def test_restart_compares_against_persisted_high_water(tmp_path: Path) -> 
             "current": 6,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_reset_inventory_baseline_clears_active_drop(tmp_path: Path) -> None:
+    backend = InventoryBackend()
+    composition = await _started(tmp_path, backend)
+    try:
+        backend.set_ids(6)
+        await composition.control.probe_node("node")
+        dropped = await composition.control.health()
+
+        result = await composition.control.reset_inventory_baseline("node", "backend")
+
+        cleared = await composition.control.health()
+    finally:
+        await composition.runtime.close()
+
+    store = await SQLiteRuntimeStore.open(tmp_path / "state.db")
+    try:
+        records = await store.list_inventory_high_water()
+    finally:
+        await store.close()
+
+    assert dropped["warnings"] != []
+    assert result == {"node_id": "node", "backend_id": "backend", "old_baseline": 10, "new_baseline": 6}
+    assert cleared["warnings"] == []
+    assert cleared["degraded"] is False
+    assert records == (
+        InventoryHighWater(
+            node_id="node", backend_id="backend", high_water_count=6, observed_at=records[0].observed_at
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_inventory_baseline_still_detects_a_later_drop_from_the_new_floor(tmp_path: Path) -> None:
+    """Resetting must not disable future drop detection -- it only accepts
+    the current count as the new floor, which the ratchet-up-only guard then
+    protects exactly as before."""
+    backend = InventoryBackend()
+    composition = await _started(tmp_path, backend)
+    try:
+        backend.set_ids(6)
+        await composition.control.probe_node("node")
+        await composition.control.reset_inventory_baseline("node", "backend")
+
+        backend.set_ids(3)
+        await composition.control.probe_node("node")
+        health = await composition.control.health()
+    finally:
+        await composition.runtime.close()
+
+    assert health["warnings"] == [
+        {
+            "code": INVENTORY_DROP_CODE,
+            "node_id": "node",
+            "backend_id": "backend",
+            "baseline": 6,
+            "current": 3,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reset_inventory_baseline_returns_none_without_an_active_drop(tmp_path: Path) -> None:
+    backend = InventoryBackend()
+    composition = await _started(tmp_path, backend)
+    try:
+        result = await composition.control.reset_inventory_baseline("node", "backend")
+    finally:
+        await composition.runtime.close()
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_reset_inventory_baseline_unknown_backend_returns_none(tmp_path: Path) -> None:
+    backend = InventoryBackend()
+    composition = await _started(tmp_path, backend)
+    try:
+        result = await composition.control.reset_inventory_baseline("node", "no-such-backend")
+    finally:
+        await composition.runtime.close()
+
+    assert result is None
