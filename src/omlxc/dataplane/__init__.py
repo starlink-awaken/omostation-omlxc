@@ -49,6 +49,19 @@ from .models import (
     RerankResult,
 )
 from .orchestrator import DataPlaneOrchestrator
+from .persona_radar import (
+    RadarDimension,
+    RadarProfile,
+    RadarEvalResult,
+    ToneDirection,
+    ToneProfile,
+    auto_rewrite_suggestion,
+    compute_radar,
+    compute_radar_dimensions,
+    compute_alignment_score,
+    raw_metrics,
+    tone_shift,
+)
 from .paged_kv import PagedKVCache, PagedKVMemoryManager, PhysicalBlock, SequenceBlockTable
 from .power_profile import PowerProfileGovernor, PowerScalingProfile
 from .predictive_warmup import (
@@ -116,6 +129,28 @@ __all__ = [
     "DFlashBackendManager",
     "DFlashConfig",
     "DataPlaneOrchestrator",
+    "RadarDimension",
+    "RadarProfile",
+    "RadarEvalResult",
+    "ToneDirection",
+    "ToneProfile",
+    "auto_rewrite_suggestion",
+    "compute_radar",
+    "compute_radar_dimensions",
+    "compute_alignment_score",
+    "raw_metrics",
+    "tone_shift",
+    "RadarDimension",
+    "RadarProfile",
+    "RadarEvalResult",
+    "ToneDirection",
+    "ToneProfile",
+    "auto_rewrite_suggestion",
+    "compute_radar",
+    "compute_radar_dimensions",
+    "compute_alignment_score",
+    "raw_metrics",
+    "tone_shift",
     "DistributedKVBlock",
     "DistributedKVPoolManager",
     "DistributedKVSwarmStatus",
