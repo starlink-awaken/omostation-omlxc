@@ -331,6 +331,16 @@ def create_app(
             return _error_response(_request_id(request), 404, "E404", "node not found")
         return _success(request, report)
 
+    @app.post("/api/v1/nodes/{node_id}/backends/{backend_id}/inventory-baseline/reset")
+    async def reset_inventory_baseline(request: Request, node_id: str, backend_id: str) -> JSONResponse:
+        service = _require_control(control)
+        result = await service.reset_inventory_baseline(node_id, backend_id)
+        if result is None:
+            return _error_response(
+                _request_id(request), 404, "E404", "node/backend not found, or no active inventory drop to reset"
+            )
+        return _success(request, result)
+
     @app.get("/api/v1/models")
     async def models(
         request: Request,

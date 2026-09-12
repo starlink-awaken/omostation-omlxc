@@ -695,6 +695,40 @@ class SQLiteRuntimeStore:
 
         await self._write(operation)
 
+    async def reset_inventory_high_water(self, record: InventoryHighWater) -> None:
+        """Force-set a high-water mark, bypassing the ratchet-up-only guard in
+        `save_inventory_high_water`. That guard exists so a transient scan glitch
+        can never silently lower the bar and mask a real regression -- but it
+        also means an intentional model-catalog shrink (files removed on
+        purpose) leaves a stale, unreachable baseline warning forever with no
+        way to accept the new, correct count. This is the explicit, one-off
+        override for exactly that case."""
+        if record.high_water_count < 0:
+            raise ValueError("inventory high-water count must be non-negative")
+        _bounded_text(record.node_id, "node_id")
+        _bounded_text(record.backend_id, "backend_id")
+        observed_at = _utc_text(record.observed_at)
+
+        async def operation(connection: aiosqlite.Connection) -> None:
+            await connection.execute(
+                """
+                INSERT INTO inventory_high_water (
+                    node_id, backend_id, high_water_count, observed_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(node_id, backend_id) DO UPDATE SET
+                    high_water_count = excluded.high_water_count,
+                    observed_at = excluded.observed_at
+                """,
+                (
+                    record.node_id,
+                    record.backend_id,
+                    record.high_water_count,
+                    observed_at,
+                ),
+            )
+
+        await self._write(operation)
+
     async def list_inventory_high_water(self) -> tuple[InventoryHighWater, ...]:
         cursor = await self._require_reader().execute(
             """
