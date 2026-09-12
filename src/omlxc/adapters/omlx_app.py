@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import quote, urlsplit
@@ -88,7 +88,7 @@ class OmlxAppAdapter:
         *,
         backend_id: str,
         base_url: str = "http://127.0.0.1:8000",
-        probe_model_id: str | None = None,
+        probe_model_id: str | Iterable[str] | None = None,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -104,7 +104,19 @@ class OmlxAppAdapter:
             raise ValueError("client and transport are mutually exclusive")
         self._backend_id = backend_id
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
-        self._probe_model_id = probe_model_id
+        # A backend that can only hold one model at a time (this one) rotates which
+        # model is actually loaded; a single fixed probe id is loaded only by
+        # coincidence, so the readiness probe silently skips (never runs, reports
+        # not-ready) for every other model almost all the time. Accepting a set of
+        # acceptable ids -- normally every chat-capable model placed on this
+        # backend -- lets the probe target whichever of them happens to be loaded
+        # right now instead of requiring one specific one.
+        if probe_model_id is None:
+            self._probe_model_ids: frozenset[str] | None = None
+        elif isinstance(probe_model_id, str):
+            self._probe_model_ids = frozenset({probe_model_id})
+        else:
+            self._probe_model_ids = frozenset(probe_model_id)
         self._clock = clock or (lambda: datetime.now(UTC))
         if minimum_version >= maximum_version:
             raise ValueError("minimum_version must be lower than maximum_version")
@@ -258,11 +270,11 @@ class OmlxAppAdapter:
 
         model_available = bool(models)
         generation_ready = False
-        probe_id = self._probe_model_id
-        if probe_id is None:
+        if self._probe_model_ids is not None:
+            probe_id = next((model.id for model in models if model.loaded and model.id in self._probe_model_ids), None)
+        else:
             probe_id = next((model.id for model in models if model.loaded), None)
-        loaded_ids = {model.id for model in models if model.loaded is True}
-        if compatible and probe_id is not None and probe_id in loaded_ids:
+        if compatible and probe_id is not None:
             probe = await self.chat(
                 ChatRequest(
                     request_id="omlx-readiness-probe",

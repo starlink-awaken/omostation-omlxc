@@ -1408,11 +1408,26 @@ def build_configured_adapters(
             ),
             default=None,
         )
+        # A backend that can only hold one model at a time (currently only
+        # OMLX_APP) rotates which model is actually loaded, so a single fixed
+        # probe id is loaded only by coincidence -- see OmlxAppAdapter's
+        # _probe_model_ids docstring. Deriving every chat-role model placed on
+        # this backend from config (instead of trusting one hand-picked id)
+        # lets the probe target whichever of them happens to be loaded right
+        # now, and never wanders onto a non-chat model (embedding, rerank,
+        # vision) placed on the same backend.
+        chat_model_ids = {model.id for model in config.models if model.role == "chat"}
+        probe_candidates = frozenset(
+            placement.backend_model_id
+            for placement in config.placements
+            if placement.backend_id == backend.id and placement.model_id in chat_model_ids
+        )
         adapters[backend.id] = build_configured_adapter(
             backend,
             tailscale=tailscale,
             load_context_length=context_length,
             default_ttl_seconds=default_ttl_seconds,
+            probe_candidates=probe_candidates or None,
         )
     return adapters
 
@@ -1423,12 +1438,13 @@ def build_configured_adapter(
     tailscale: TailscaleAdapter | None = None,
     load_context_length: int | None = None,
     default_ttl_seconds: int | None = None,
+    probe_candidates: frozenset[str] | None = None,
 ) -> BackendAdapter:
     if backend.kind is BackendKind.OMLX_APP:
         adapter: object = OmlxAppAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=backend.probe_model_id,
+            probe_model_id=probe_candidates or backend.probe_model_id,
         )
     elif backend.kind is BackendKind.OLLAMA:
         adapter = OllamaAdapter(
