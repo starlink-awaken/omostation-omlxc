@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, Protocol, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator, model_validator
 
 from omlxc.domain import BackendKind, RouteProfile
 from omlxc.domain.security import (
@@ -170,6 +170,11 @@ class BackendConfig(ConfigModel):
     control_endpoint: str | None = None
     protocol_version: str = "openai-v1"
     credential_ref: str | None = None
+    # Only meaningful for BackendKind.OMLX_APP: a Keychain reference to that
+    # instance's admin API key, used solely to log in to its own
+    # /auto-login flow and push each model's declared `parameters` (kv_bits/
+    # temp/top_p) to PUT /api/models/{id}/settings. See omlx_admin_sync.py.
+    admin_credential_ref: str | None = None
     probe_model_id: str | None = None
     known_hosts_file: Path | None = None
     lms_platform: Literal["macos", "windows"] = "macos"
@@ -180,11 +185,11 @@ class BackendConfig(ConfigModel):
     def parse_kind(cls, value: object) -> object:
         return BackendKind(value) if isinstance(value, str) else value
 
-    @field_validator("credential_ref")
+    @field_validator("credential_ref", "admin_credential_ref")
     @classmethod
-    def keychain_reference_only(cls, value: str | None) -> str | None:
+    def keychain_reference_only(cls, value: str | None, info: ValidationInfo) -> str | None:
         if value is not None and not is_keychain_reference(value):
-            raise CredentialPolicyError("credential_ref must be a valid Keychain reference")
+            raise CredentialPolicyError(f"{info.field_name} must be a valid Keychain reference")
         return value
 
     @field_validator("base_url", "control_endpoint")
