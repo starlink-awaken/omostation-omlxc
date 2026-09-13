@@ -103,7 +103,7 @@ class TestOllamaContract(BackendAdapterContract):
                         },
                     )
                 assert payload["stream"] is False
-                assert payload["options"]["num_predict"] == 1
+                assert payload["options"]["num_predict"] == 200
                 return httpx.Response(
                     200,
                     json={
