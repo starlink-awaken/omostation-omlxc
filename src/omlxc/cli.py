@@ -20,6 +20,7 @@ from rich.text import Text
 from typer import Abort
 
 from . import __version__
+from .adapters.omlx_admin_sync import sync_declared_parameters
 from .cli_guide import (
     DAEMON_OPERATIONS,
     MAX_GUIDE_TRANSITIONS,
@@ -709,6 +710,54 @@ def models_reconcile(
 ) -> None:
     _require_r1("reconcile models", yes=yes, json_output=json_output)
     _unsupported("models reconcile", json_output=json_output)
+
+
+@models_app.command("sync-parameters")
+def models_sync_parameters(
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Push each model's declared config.toml parameters (temp/top_p/kv_bits)
+    to the oMLX App backend(s) it is actually placed on.
+
+    config.toml's ``[models.parameters]`` is pure declaration until this
+    runs: no adapter or daemon code path reads it otherwise, so a model can
+    say ``kv_bits = 8`` while the backend silently keeps running with
+    oMLX's own compiled-in default. Only BackendKind.OMLX_APP placements
+    are affected; Ollama/LM Studio have no equivalent per-model settings
+    surface to push these to.
+    """
+    _require_r1("sync declared model parameters to oMLX", yes=yes, json_output=json_output)
+    try:
+        config = load_user_config()
+        results = asyncio.run(sync_declared_parameters(config))
+    except ConfigError as exc:
+        _fail_local("E100", str(exc), json_output=json_output)
+        return
+    data = {
+        "results": [
+            {
+                "model_id": r.model_id,
+                "backend_id": r.backend_id,
+                "backend_model_id": r.backend_model_id,
+                "status": r.status,
+                "detail": r.detail,
+            }
+            for r in results
+        ]
+    }
+    if json_output:
+        _emit_success(data, request_id=_request_id())
+        return
+    table = Table(box=box.SIMPLE)
+    for column in ("model", "backend", "status", "detail"):
+        table.add_column(column)
+    for r in results:
+        style = {"applied": "green", "failed": "red"}.get(r.status, "dim")
+        table.add_row(r.model_id, r.backend_id, f"[{style}]{r.status}[/{style}]", r.detail or "")
+    _console.print(table)
+    if any(r.status == "failed" for r in results):
+        raise typer.Exit(1)
 
 
 @routes_app.command("show")
