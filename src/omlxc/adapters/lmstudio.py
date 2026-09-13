@@ -7,7 +7,7 @@ import json
 import os
 import re
 import stat
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -168,7 +168,7 @@ class LmStudioAdapter:
         *,
         backend_id: str,
         base_url: str,
-        probe_model_id: str | None = None,
+        probe_model_id: str | Iterable[str] | None = None,
         ssh_target: str | None = None,
         known_hosts_file: Path | None = None,
         platform: LmsPlatform = LmsPlatform.MACOS,
@@ -195,12 +195,21 @@ class LmStudioAdapter:
             _validate_target(ssh_target)
             assert known_hosts_file is not None
             _validate_known_hosts(known_hosts_file)
-        if probe_model_id is not None:
+        probe_model_ids: frozenset[str] | None
+        if probe_model_id is None:
+            probe_model_ids = None
+        elif isinstance(probe_model_id, str):
             _validate_model_token(probe_model_id, label="probe model")
+            probe_model_ids = frozenset({probe_model_id})
+        else:
+            candidates = tuple(probe_model_id)
+            for candidate in candidates:
+                _validate_model_token(candidate, label="probe model")
+            probe_model_ids = frozenset(candidates) if candidates else None
 
         self._backend_id = backend_id
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
-        self._probe_model_id = probe_model_id
+        self._probe_model_ids = probe_model_ids
         self._ssh_target = ssh_target
         self._known_hosts_file = known_hosts_file
         self._platform = LmsPlatform(platform)
@@ -555,8 +564,9 @@ class LmStudioAdapter:
 
         model_available = bool(models)
         errors = () if control_error is None else (control_error,)
-        probe_id = self._probe_model_id
-        if probe_id is None:
+        if self._probe_model_ids is not None:
+            probe_id = next((model.id for model in models if model.loaded and model.id in self._probe_model_ids), None)
+        else:
             probe_id = next((model.id for model in models if model.loaded is True), None)
         loaded_ids = {model.id for model in models if model.loaded is True}
         # 仅在控制通道可用(loaded 状态确定)时刷新缓存, 失败时保留上一轮快照
