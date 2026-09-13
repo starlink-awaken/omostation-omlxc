@@ -1444,9 +1444,10 @@ def build_configured_adapters(
             ),
             default=None,
         )
-        # A backend that can only hold one model at a time (currently only
-        # OMLX_APP) rotates which model is actually loaded, so a single fixed
-        # probe id is loaded only by coincidence -- see OmlxAppAdapter's
+        # A backend can host more than one chat-role model (e.g. Ollama/LM
+        # Studio serving several placements at once), so a single fixed probe
+        # id can point at a model that isn't actually loaded while a sibling
+        # chat model on the same backend is -- see each adapter's
         # _probe_model_ids docstring. Deriving every chat-role model placed on
         # this backend from config (instead of trusting one hand-picked id)
         # lets the probe target whichever of them happens to be loaded right
@@ -1486,7 +1487,7 @@ def build_configured_adapter(
         adapter = OllamaAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=backend.probe_model_id,
+            probe_model_id=probe_candidates or backend.probe_model_id,
         )
     else:
         control_authorizer = (
@@ -1497,7 +1498,7 @@ def build_configured_adapter(
         adapter = LmStudioAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=backend.probe_model_id,
+            probe_model_id=probe_candidates or backend.probe_model_id,
             ssh_target=backend.control_endpoint,
             known_hosts_file=backend.known_hosts_file,
             platform=LmsPlatform(backend.lms_platform),

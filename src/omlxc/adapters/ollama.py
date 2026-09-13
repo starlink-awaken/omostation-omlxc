@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import math
 import re
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -62,6 +63,9 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _TIMEOUT = httpx.Timeout(connect=2.0, read=60.0, write=10.0, pool=2.0)
 DEFAULT_KEEP_ALIVE_SECONDS = 300
 MAX_KEEP_ALIVE_SECONDS = 86_400
+# 探针独立短超时: 探针模型可能正忙于长生成(用户真实请求), 不能让一次慢探针
+# 拖住整个 discover() 周期。
+_PROBE_CHAT_TIMEOUT = 5.0
 DEFAULT_MAX_RESPONSE_BYTES = 4_194_304
 DEFAULT_MAX_NDJSON_RECORD_BYTES = 1_048_576
 DEFAULT_MAX_STREAM_BYTES = 16_777_216
@@ -119,7 +123,7 @@ class OllamaAdapter:
         *,
         backend_id: str,
         base_url: str = "http://127.0.0.1:11434",
-        probe_model_id: str | None = None,
+        probe_model_id: str | Iterable[str] | None = None,
         keep_alive_seconds: int = DEFAULT_KEEP_ALIVE_SECONDS,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -143,8 +147,18 @@ class OllamaAdapter:
             raise ValueError("base_url must not contain userinfo")
         if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
             raise ValueError("base_url must be an origin root without query or fragment")
-        if probe_model_id is not None and not _valid_model_id(probe_model_id):
-            raise ValueError("probe_model_id is invalid")
+        probe_model_ids: frozenset[str] | None
+        if probe_model_id is None:
+            probe_model_ids = None
+        elif isinstance(probe_model_id, str):
+            if not _valid_model_id(probe_model_id):
+                raise ValueError("probe_model_id is invalid")
+            probe_model_ids = frozenset({probe_model_id})
+        else:
+            candidates = tuple(probe_model_id)
+            if any(not _valid_model_id(candidate) for candidate in candidates):
+                raise ValueError("probe_model_id is invalid")
+            probe_model_ids = frozenset(candidates) if candidates else None
         if type(keep_alive_seconds) is not int or not 1 <= keep_alive_seconds <= MAX_KEEP_ALIVE_SECONDS:
             raise ValueError("keep_alive_seconds must be an integer from 1 to 86400")
         if client is not None and transport is not None:
@@ -170,7 +184,7 @@ class OllamaAdapter:
             raise ValueError("total image limit must cover one image")
         self._backend_id = backend_id
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
-        self._probe_model_id = probe_model_id
+        self._probe_model_ids = probe_model_ids
         self._keep_alive_seconds = keep_alive_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
         self._owns_client = client is None
@@ -326,24 +340,33 @@ class OllamaAdapter:
             errors.append(failure.error)
             models = ()
             compatible = False
-        probe_id = self._probe_model_id
-        if probe_id is None:
+        if self._probe_model_ids is not None:
+            probe_id = next((model.id for model in models if model.loaded and model.id in self._probe_model_ids), None)
+        else:
             probe_id = next((model.id for model in models if model.loaded is True), None)
         loaded_ids = {model.id for model in models if model.loaded is True}
         generation_ready = False
         if compatible and probe_id is not None and probe_id in loaded_ids:
-            probe = await self.chat(
-                ChatRequest(
-                    request_id="ollama-readiness-probe",
-                    model=probe_id,
-                    messages=(ChatMessage(role="user", content="Reply O only"),),
-                    max_tokens=1,
-                    temperature=0.0,
-                )
-            )
-            generation_ready = probe.success and bool(probe.content)
-            if probe.error is not None:
-                errors.append(probe.error)
+            try:
+                async with asyncio.timeout(_PROBE_CHAT_TIMEOUT):
+                    probe = await self.chat(
+                        ChatRequest(
+                            request_id="ollama-readiness-probe",
+                            model=probe_id,
+                            messages=(ChatMessage(role="user", content="Reply O only"),),
+                            # 100 而非 1: 输出 reasoning_content 的模型(如
+                            # gpt-oss:20b)会先消耗思维链 token, max_tokens=1
+                            # 时永远拿不到可见内容, 实测 200 才能稳定跨过。
+                            max_tokens=200,
+                            temperature=0.0,
+                        )
+                    )
+            except TimeoutError:
+                probe = None
+            if probe is not None:
+                generation_ready = probe.success and bool(probe.content)
+                if probe.error is not None:
+                    errors.append(probe.error)
         capabilities: frozenset[AdapterCapability] = (
             frozenset(
                 {
