@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
@@ -49,6 +50,9 @@ _SEMVER = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 _TIMEOUT = httpx.Timeout(connect=2.0, read=30.0, write=10.0, pool=2.0)
+# 探针 chat 的独立短超时(秒)。必须显著小于 backend 级 probe_timeout,
+# 保证探针排队/卡住时 discover 仍能整体按时返回。
+_PROBE_CHAT_TIMEOUT = 5.0
 DEFAULT_MINIMUM_VERSION = (0, 5, 0)
 # 2026-08-26: 上界 (0,6,0) 拒掉了 oMLX App 0.6.x 自己(实测 0.6.2 →
 # compatible=False → 全 placement available=False → 409, 第六层终修)。
@@ -275,18 +279,27 @@ class OmlxAppAdapter:
         else:
             probe_id = next((model.id for model in models if model.loaded), None)
         if compatible and probe_id is not None:
-            probe = await self.chat(
-                ChatRequest(
-                    request_id="omlx-readiness-probe",
-                    model=probe_id,
-                    messages=(ChatMessage(role="user", content="Reply O only"),),
-                    max_tokens=1,
-                    temperature=0.0,
-                )
-            )
-            generation_ready = probe.success and bool(probe.content)
-            if probe.error is not None:
-                errors.append(probe.error)
+            try:
+                async with asyncio.timeout(_PROBE_CHAT_TIMEOUT):
+                    probe = await self.chat(
+                        ChatRequest(
+                            request_id="omlx-readiness-probe",
+                            model=probe_id,
+                            messages=(ChatMessage(role="user", content="Reply O only"),),
+                            # 100 而非 1: 输出 reasoning_content 的模型(如
+                            # placed 在同一 backend 上的 GLM-4.7-Flash)会先
+                            # 消耗思维链 token, max_tokens=1 时永远拿不到可见
+                            # 内容, 与 ollama.py 同一根因同一修复(2026-09-13)。
+                            max_tokens=100,
+                            temperature=0.0,
+                        )
+                    )
+            except TimeoutError:
+                probe = None
+            if probe is not None:
+                generation_ready = probe.success and bool(probe.content)
+                if probe.error is not None:
+                    errors.append(probe.error)
 
         capabilities: set[AdapterCapability] = set()
         if compatible:

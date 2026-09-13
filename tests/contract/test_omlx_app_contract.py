@@ -113,7 +113,7 @@ class TestOmlxAppContract(BackendAdapterContract):
                         },
                     )
                 payload = json.loads(request.content)
-                assert payload["max_tokens"] == 1
+                assert payload["max_tokens"] == 100
                 return httpx.Response(
                     200,
                     json={"choices": [{"message": {"content": "O"}, "finish_reason": "length"}]},
