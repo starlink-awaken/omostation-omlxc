@@ -17,21 +17,21 @@ check_http() {
   curl -sf -m 3 "$1" >/dev/null 2>&1
 }
 
-# --- oMLX App (自愈：进程活着但端口不通是已知故障模式) ---
+# --- oMLX App (2026-09-13 诊断实锤后改版) ---
+# 旧版在这里 pkill -x oMLX + open -a oMLX 自愈, 但已确认: GUI 双击 / launchd
+# (不论直接还是间接) 拉起的 oMLX 进程链条, 会在 model_discovery.py 对
+# /Volumes/Model 上的文件 open() 时永久卡死内核态 —— 根因是 launchd 派生的
+# 进程没有 macOS 的 SECURITYSESSIONID (图形界面安全会话), fork/setsid 都救
+# 不回来(实测: launchd 脚本自己再 setsid 双重 fork 依然卡死)。而这个
+# watchdog 本身就是 launchd LaunchAgent, 所以旧版的"自愈"实际上是每 5 分钟
+# 用 pkill+open -a 把一个可能正常启动中的实例腰斩、再触发一次必然卡死的
+# 重启, 是过去反复复现"卡死"的元凶之一, 不是缓解手段。
+# 治本方案是 omlx-server-ensure.sh (从终端登录会话里调用, 天然带合法安全
+# 会话) + ~/.zshrc 里每次开新终端顺手检查。这里改成只检测+告警, 不再由
+# launchd 自己动手重启。
 if ! check_http "http://127.0.0.1:8000/v1/models"; then
-  log "[WARN] oMLX App 端口 8000 无响应，尝试重启"
-  pkill -x oMLX 2>/dev/null
-  sleep 2
-  open -a oMLX 2>/dev/null
-  for i in 1 2 3 4 5 6; do
-    sleep 5
-    check_http "http://127.0.0.1:8000/v1/models" && break
-  done
-  if check_http "http://127.0.0.1:8000/v1/models"; then
-    log "[OK] oMLX App 已恢复"
-  else
-    log "[ERROR] oMLX App 重启后仍无响应，需要人工检查"
-  fi
+  log "[WARN] oMLX App 端口 8000 无响应 — watchdog 不再自动重启(launchd 拉起必卡死, 见脚本注释), 已发桌面通知提醒手动处理"
+  osascript -e 'display notification "oMLX 本地服务无响应, 请打开一个终端窗口(会自动检测拉起)或手动运行 omlx-server-ensure.sh" with title "oMLX 服务告警"' >/dev/null 2>&1
 fi
 
 # --- 共享 worktree detached HEAD 告警 (2026-08-25 二发事故催生) ---
