@@ -454,6 +454,33 @@
       },
       "note": "Qwen3.8-27B + DFlash 2 块扩散投机解码 70 tok/s 极速版 (18.5GB)",
       "size_gb": 18.5
+    },
+    "gpt-oss-20b": {
+      "category": "reasoning",
+      "alias": "gpt-oss-20b/current",
+      "engine": "ollama",
+      "backend_node": "macmini",
+      "role": "chat",
+      "reasoning": true,
+      "params": {
+        "max_tokens": 8192,
+        "temp": 0.6
+      },
+      "note": "GPT-OSS 20B MXFP4 — M4 Pro 24G 上 eval 50.5 tok/s (Ollama 实测), 高性价比推理模型",
+      "size_gb": 13
+    },
+    "qwen-3-5-9b-macmini": {
+      "category": "coding",
+      "alias": "qwen-3-5-9b/macmini",
+      "engine": "ollama",
+      "backend_node": "macmini",
+      "role": "chat",
+      "reasoning": false,
+      "params": {
+        "max_tokens": 4096
+      },
+      "note": "Qwen 3.5 9B on macmini Ollama — eval 36.3 tok/s",
+      "size_gb": 6
     }
   },
   "cluster": {
@@ -578,9 +605,9 @@
       },
       "macmini": {
         "host": "100.99.210.78",
-        "primary": "lmstudio",
+        "primary": "ollama",
         "fallback": [
-          "ollama"
+          "lmstudio"
         ],
         "lmstudio_port": 1234,
         "ollama_port": 11434
