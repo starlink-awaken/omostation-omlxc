@@ -32,13 +32,11 @@ from .persona_radar import (
     RadarEvalResult,
     ToneDirection,
     ToneProfile,
+    auto_rewrite_suggestion,
     compute_radar,
-    compute_radar_dimensions,
     raw_metrics,
     tone_shift,
-    auto_rewrite_suggestion,
 )
-
 
 # Default sample text representing a typical professional writing style
 _DEFAULT_SAMPLE = """
@@ -91,11 +89,9 @@ def main() -> int:
     )
     parser.add_argument("--file", "-f", help="Text file to evaluate (default: built-in sample)")
     parser.add_argument("--author", "-a", default="anonymous", help="Author name for report")
-    parser.add_argument("--threshold", "-t", type=float, default=85.0,
-                        help="Alignment threshold (default: 85.0)")
+    parser.add_argument("--threshold", "-t", type=float, default=85.0, help="Alignment threshold (default: 85.0)")
     parser.add_argument("--tone", help="Tone shift direction: solemn | sharp | gentle")
-    parser.add_argument("--strength", type=float, default=1.0,
-                        help="Tone shift strength 0-1 (default: 1.0)")
+    parser.add_argument("--strength", type=float, default=1.0, help="Tone shift strength 0-1 (default: 1.0)")
     # Individual dimension overrides (0.0-1.0)
     parser.add_argument("--formality", type=float, default=0.5)
     parser.add_argument("--warmth", type=float, default=0.4)
@@ -110,8 +106,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # Clamp all numeric args to [0.0, 1.0]
-    for dim in ("formality", "warmth", "authority", "brevity",
-                "concreteness", "rhythm", "originality"):
+    for dim in ("formality", "warmth", "authority", "brevity", "concreteness", "rhythm", "originality"):
         setattr(args, dim, max(0.0, min(1.0, getattr(args, dim))))
 
     text = _load_text(args)
@@ -145,7 +140,7 @@ def _print_report(result: RadarEvalResult) -> None:
     metrics = result.raw_metrics
 
     print(f"{'=' * 60}")
-    print(f"  个人文风一致性多维雷达评估报告 (BET-Y2Q2-T3-01)")
+    print("  个人文风一致性多维雷达评估报告 (BET-Y2Q2-T3-01)")
     print(f"{'=' * 60}")
     print(f"  Author:        {p.author}")
     print(f"  Alignment:     {p.alignment_score:.1f} / 100")

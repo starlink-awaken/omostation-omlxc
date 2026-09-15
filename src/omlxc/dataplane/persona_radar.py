@@ -18,42 +18,47 @@ All heuristics are lightweight text analytics (no ML model required).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RadarDimension:
     """One axis of the writing-style radar."""
-    name: str        # machine key
-    label: str       # human label (Chinese)
-    current: float   # 0-100 measured from text
-    target: float    # 0-100 desired (from ToneProfile)
-    gap: float       # target - current (positive = need more)
 
-    def to_dict(self) -> dict:
-        return {"name": self.name, "label": self.label,
-                "current": round(self.current, 1),
-                "target": round(self.target, 1),
-                "gap": round(self.gap, 1)}
+    name: str  # machine key
+    label: str  # human label (Chinese)
+    current: float  # 0-100 measured from text
+    target: float  # 0-100 desired (from ToneProfile)
+    gap: float  # target - current (positive = need more)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "label": self.label,
+            "current": round(self.current, 1),
+            "target": round(self.target, 1),
+            "gap": round(self.gap, 1),
+        }
 
 
 @dataclass
 class RadarProfile:
     """Full radar profile for an author against a target tone."""
+
     author: str
     dimensions: list[RadarDimension]
     alignment_score: float  # 0-100
     threshold: float = 85.0
     below_threshold: bool = False
-    suggestions: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list[str])
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "author": self.author,
             "alignment_score": round(self.alignment_score, 1),
@@ -67,6 +72,7 @@ class RadarProfile:
 @dataclass
 class ToneProfile:
     """Target writing style profile.  All fields 0.0-1.0."""
+
     formality: float = 0.5
     warmth: float = 0.4
     authority: float = 0.6
@@ -87,17 +93,18 @@ class ToneProfile:
             "originality": self.originality * 100,
         }
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, float]:
         return asdict(self)
 
 
 @dataclass
 class RadarEvalResult:
     """Result of running persona_radar_eval."""
-    profile: RadarProfile
-    raw_metrics: dict
 
-    def to_dict(self) -> dict:
+    profile: RadarProfile
+    raw_metrics: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "profile": self.profile.to_dict(),
             "raw_metrics": {k: round(v, 2) for k, v in self.raw_metrics.items()},
@@ -108,17 +115,19 @@ class RadarEvalResult:
 # Tone directions
 # ---------------------------------------------------------------------------
 
+
 class ToneDirection(Enum):
     """Three preset tone shift directions."""
-    SOLEMN = "solemn"      # 更庄严稳重
-    SHARP = "sharp"        # 更犀利专业
-    GENTLE = "gentle"      # 更柔和温和
+
+    SOLEMN = "solemn"  # 更庄严稳重
+    SHARP = "sharp"  # 更犀利专业
+    GENTLE = "gentle"  # 更柔和温和
 
 
 # Shift vectors: (formality, warmth, authority, brevity, concreteness, rhythm, originality)
 _TONE_SHIFTS: dict[ToneDirection, tuple[float, float, float, float, float, float, float]] = {
     ToneDirection.SOLEMN: (0.15, 0.0, 0.15, 0.05, 0.05, 0.05, -0.05),
-    ToneDirection.SHARP:  (0.10, -0.10, 0.20, 0.10, 0.10, 0.0, 0.05),
+    ToneDirection.SHARP: (0.10, -0.10, 0.20, 0.10, 0.10, 0.0, 0.05),
     ToneDirection.GENTLE: (-0.05, 0.20, -0.15, 0.0, -0.05, 0.10, 0.0),
 }
 
@@ -136,7 +145,10 @@ _LABELS: dict[str, str] = {
 def tone_shift(profile: ToneProfile, direction: ToneDirection, strength: float = 1.0) -> ToneProfile:
     """Return a new ToneProfile shifted in *direction* by *strength* (0-1)."""
     delta = _TONE_SHIFTS[direction]
-    clamp = lambda v: max(0.0, min(1.0, v))
+
+    def clamp(v: float) -> float:
+        return max(0.0, min(1.0, v))
+
     return ToneProfile(
         formality=clamp(profile.formality + delta[0] * strength),
         warmth=clamp(profile.warmth + delta[1] * strength),
@@ -153,23 +165,84 @@ def tone_shift(profile: ToneProfile, direction: ToneDirection, strength: float =
 # ---------------------------------------------------------------------------
 
 _FORMAL_TOKENS = {
-    "the", "shall", "therefore", "consequently", "furthermore", "henceforth",
-    "hereby", "forthwith", "whereas", "herein", "aforementioned", "notwithstanding",
-    "regarding", "pursuant", "thereupon", "hence", "whence", "hitherto",
+    "the",
+    "shall",
+    "therefore",
+    "consequently",
+    "furthermore",
+    "henceforth",
+    "hereby",
+    "forthwith",
+    "whereas",
+    "herein",
+    "aforementioned",
+    "notwithstanding",
+    "regarding",
+    "pursuant",
+    "thereupon",
+    "hence",
+    "whence",
+    "hitherto",
 }
 _INFORMAL_TOKENS = {
-    "gonna", "wanna", "gotta", "kinda", "sorta", "y'all", "ain't", "cuz", "u",
-    "thx", "btw", "imo", "idk", "lol", "omg", "pls", "ngl", "tbh", "fr",
+    "gonna",
+    "wanna",
+    "gotta",
+    "kinda",
+    "sorta",
+    "y'all",
+    "ain't",
+    "cuz",
+    "u",
+    "thx",
+    "btw",
+    "imo",
+    "idk",
+    "lol",
+    "omg",
+    "pls",
+    "ngl",
+    "tbh",
+    "fr",
 }
 
 _WARM_WORDS = {
-    "love", "heart", "beautiful", "wonderful", "amazing", "fantastic", "precious",
-    "warm", "kind", "gentle", "tender", "beloved", "dear", "cherish",
-    "treasure", "hug", "smile", "laugh", "joy", "happiness", "comfort", "embrace",
+    "love",
+    "heart",
+    "beautiful",
+    "wonderful",
+    "amazing",
+    "fantastic",
+    "precious",
+    "warm",
+    "kind",
+    "gentle",
+    "tender",
+    "beloved",
+    "dear",
+    "cherish",
+    "treasure",
+    "hug",
+    "smile",
+    "laugh",
+    "joy",
+    "happiness",
+    "comfort",
+    "embrace",
 }
 _COLD_WORDS = {
-    "cold", "clinical", "sterile", "impersonal", "mechanical", "procedural",
-    "automated", "standardized", "protocol", "regulation", "statute", "code",
+    "cold",
+    "clinical",
+    "sterile",
+    "impersonal",
+    "mechanical",
+    "procedural",
+    "automated",
+    "standardized",
+    "protocol",
+    "regulation",
+    "statute",
+    "code",
 }
 
 _ASSERTIVE_STARTERS = re.compile(
@@ -177,34 +250,109 @@ _ASSERTIVE_STARTERS = re.compile(
     re.IGNORECASE,
 )
 _HEDGES = {
-    "maybe", "perhaps", "possibly", "might", "could", "may", "somewhat",
-    "slightly", "arguably", "tentatively", "in some way", "sort of", "kind of",
+    "maybe",
+    "perhaps",
+    "possibly",
+    "might",
+    "could",
+    "may",
+    "somewhat",
+    "slightly",
+    "arguably",
+    "tentatively",
+    "in some way",
+    "sort of",
+    "kind of",
 }
 
 _CONCRETE_NOUNS = {
-    "table", "chair", "book", "phone", "car", "tree", "river", "mountain",
-    "house", "room", "street", "city", "country", "money", "time", "day",
-    "year", "month", "week", "person", "child", "man", "woman", "friend",
-    "food", "water", "fire", "light", "sound", "color", "name", "word",
-    "sentence", "paragraph", "chapter", "page", "idea", "thought", "feeling",
-    "action", "result", "effect", "cause", "reason", "question", "answer",
-    "solution", "problem", "mistake", "error", "success", "failure", "goal",
+    "table",
+    "chair",
+    "book",
+    "phone",
+    "car",
+    "tree",
+    "river",
+    "mountain",
+    "house",
+    "room",
+    "street",
+    "city",
+    "country",
+    "money",
+    "time",
+    "day",
+    "year",
+    "month",
+    "week",
+    "person",
+    "child",
+    "man",
+    "woman",
+    "friend",
+    "food",
+    "water",
+    "fire",
+    "light",
+    "sound",
+    "color",
+    "name",
+    "word",
+    "sentence",
+    "paragraph",
+    "chapter",
+    "page",
+    "idea",
+    "thought",
+    "feeling",
+    "action",
+    "result",
+    "effect",
+    "cause",
+    "reason",
+    "question",
+    "answer",
+    "solution",
+    "problem",
+    "mistake",
+    "error",
+    "success",
+    "failure",
+    "goal",
 }
 _ABSTRACT_NOUNS = {
-    "truth", "justice", "freedom", "love", "hope", "faith", "soul", "spirit",
-    "wisdom", "knowledge", "intelligence", "consciousness", "reality", "existence",
-    "meaning", "purpose", "destiny", "eternity", "infinity", "essence", "nature",
+    "truth",
+    "justice",
+    "freedom",
+    "love",
+    "hope",
+    "faith",
+    "soul",
+    "spirit",
+    "wisdom",
+    "knowledge",
+    "intelligence",
+    "consciousness",
+    "reality",
+    "existence",
+    "meaning",
+    "purpose",
+    "destiny",
+    "eternity",
+    "infinity",
+    "essence",
+    "nature",
 }
 
 
 def _extract_sentences(text: str) -> list[str]:
     """Split text into sentences, keeping only non-trivial ones."""
-    parts = re.split(r'[.!?。！？\n]+', text)
+    parts = re.split(r"[.!?。！？\n]+", text)
     return [s.strip() for s in parts if len(s.strip()) > 10]
 
 
 def _extract_words(text: str) -> list[str]:
-    return re.findall(r'[a-zA-Z]+', text.lower())
+    return re.findall(r"[a-zA-Z]+", text.lower())
 
 
 def _measure_formality(words: list[str]) -> float:
@@ -269,8 +417,8 @@ def _measure_rhythm(sentences: list[str]) -> float:
     mean_len = sum(lengths) / len(lengths)
     if mean_len == 0:
         return 0.5
-    variance = sum((l - mean_len) ** 2 for l in lengths) / len(lengths)
-    std = variance ** 0.5
+    variance = sum((length - mean_len) ** 2 for length in lengths) / len(lengths)
+    std = variance**0.5
     cv = std / mean_len
     if 0.2 <= cv <= 0.5:
         return 1.0
@@ -294,6 +442,7 @@ def _measure_originality(words: list[str]) -> float:
 # Radar computation
 # ---------------------------------------------------------------------------
 
+
 def compute_radar_dimensions(text: str, target: ToneProfile) -> list[RadarDimension]:
     """Measure text against target profile across all radar dimensions."""
     words = _extract_words(text)
@@ -310,15 +459,20 @@ def compute_radar_dimensions(text: str, target: ToneProfile) -> list[RadarDimens
     }
 
     targets = target.to_targets()
-    dimensions = []
+    dimensions: list[RadarDimension] = []
     for name, label in _LABELS.items():
         current = raw[name] * 100
         tgt = targets[name]
         gap = tgt - current
-        dimensions.append(RadarDimension(
-            name=name, label=label,
-            current=current, target=tgt, gap=gap,
-        ))
+        dimensions.append(
+            RadarDimension(
+                name=name,
+                label=label,
+                current=current,
+                target=tgt,
+                gap=gap,
+            )
+        )
     return dimensions
 
 
@@ -364,7 +518,7 @@ def compute_radar(
     )
 
 
-def auto_rewrite_suggestion(text: str, profile: RadarProfile) -> Optional[str]:
+def auto_rewrite_suggestion(text: str, profile: RadarProfile) -> str | None:
     """If below threshold, produce a partial rewrite suggestion summary."""
     if not profile.below_threshold:
         return None
@@ -374,8 +528,9 @@ def auto_rewrite_suggestion(text: str, profile: RadarProfile) -> Optional[str]:
         return None
     return (
         f"⚠️ 文风雷达对齐度 {profile.alignment_score:.0f} < 阈值 {profile.threshold:.0f}\n"
-        f"主要差距维度: " + ", ".join(f"{d.label}({d.gap:+.0f})" for d in top) +
-        "\n建议: 根据差距维度调整措辞或参考历史署名文风进行局部重写。"
+        f"主要差距维度: "
+        + ", ".join(f"{d.label}({d.gap:+.0f})" for d in top)
+        + "\n建议: 根据差距维度调整措辞或参考历史署名文风进行局部重写。"
     )
 
 
