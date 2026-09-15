@@ -34,7 +34,6 @@ from .persona_radar import (
     ToneProfile,
     auto_rewrite_suggestion,
     compute_radar,
-    compute_radar_dimensions,
     raw_metrics,
     tone_shift,
 )

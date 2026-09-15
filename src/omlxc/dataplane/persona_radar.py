@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -37,7 +37,7 @@ class RadarDimension:
     target: float  # 0-100 desired (from ToneProfile)
     gap: float  # target - current (positive = need more)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "label": self.label,
@@ -56,9 +56,9 @@ class RadarProfile:
     alignment_score: float  # 0-100
     threshold: float = 85.0
     below_threshold: bool = False
-    suggestions: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list[str])
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "author": self.author,
             "alignment_score": round(self.alignment_score, 1),
@@ -93,7 +93,7 @@ class ToneProfile:
             "originality": self.originality * 100,
         }
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, float]:
         return asdict(self)
 
 
@@ -102,9 +102,9 @@ class RadarEvalResult:
     """Result of running persona_radar_eval."""
 
     profile: RadarProfile
-    raw_metrics: dict
+    raw_metrics: dict[str, float]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "profile": self.profile.to_dict(),
             "raw_metrics": {k: round(v, 2) for k, v in self.raw_metrics.items()},
@@ -459,7 +459,7 @@ def compute_radar_dimensions(text: str, target: ToneProfile) -> list[RadarDimens
     }
 
     targets = target.to_targets()
-    dimensions = []
+    dimensions: list[RadarDimension] = []
     for name, label in _LABELS.items():
         current = raw[name] * 100
         tgt = targets[name]
