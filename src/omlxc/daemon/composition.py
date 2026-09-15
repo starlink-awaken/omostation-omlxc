@@ -1453,6 +1453,19 @@ def build_configured_adapters(
         # lets the probe target whichever of them happens to be loaded right
         # now, and never wanders onto a non-chat model (embedding, rerank,
         # vision) placed on the same backend.
+        #
+        # 2026-09-15: backend.probe_model_id, when set, now takes precedence
+        # over this auto-derived set (see build_configured_adapter) --
+        # previously `probe_candidates or backend.probe_model_id` meant any
+        # backend with real chat placements silently ignored a manually
+        # configured probe_model_id, since probe_candidates is virtually
+        # never empty in practice. That let the readiness probe -- a real
+        # chat completion sent on every probe_interval_seconds tick -- pin
+        # whichever chat model a backend happened to have loaded, keeping it
+        # resident indefinitely by continually refreshing its idle TTL, with
+        # no config knob able to override it. Deployments that want the probe
+        # restricted to specific always-fine-to-warm models (rather than
+        # "whatever's loaded right now") must set backend.probe_model_id.
         chat_model_ids = {model.id for model in config.models if model.role == "chat"}
         probe_candidates = frozenset(
             placement.backend_model_id
@@ -1481,13 +1494,13 @@ def build_configured_adapter(
         adapter: object = OmlxAppAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=probe_candidates or backend.probe_model_id,
+            probe_model_id=backend.probe_model_id or probe_candidates,
         )
     elif backend.kind is BackendKind.OLLAMA:
         adapter = OllamaAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=probe_candidates or backend.probe_model_id,
+            probe_model_id=backend.probe_model_id or probe_candidates,
         )
     else:
         control_authorizer = (
@@ -1498,7 +1511,7 @@ def build_configured_adapter(
         adapter = LmStudioAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
-            probe_model_id=probe_candidates or backend.probe_model_id,
+            probe_model_id=backend.probe_model_id or probe_candidates,
             ssh_target=backend.control_endpoint,
             known_hosts_file=backend.known_hosts_file,
             platform=LmsPlatform(backend.lms_platform),
