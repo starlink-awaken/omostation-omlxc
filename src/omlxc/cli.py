@@ -1968,7 +1968,7 @@ def fabric_speculative_eval(
 def fabric_dma(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0437)."""
+    """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0439)."""
     from omlxc.daemon.dma_daemon import STATE_FILE_REL
     from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
 
@@ -2015,7 +2015,7 @@ def fabric_dma(
             f"NUMA Pool: [bold white]{telemetry.get('numa_pool_size_gb', 0.0)} GB[/bold white]\n"
             f"Transferred: [dim]{telemetry.get('total_transferred_mb', 0.0)} MB[/dim]\n"
             f"Source: [dim]{telemetry.get('source')}[/dim]",
-            title="[bold #7dd3f5]Thunderbolt 5 DMA Sovereign Link (ADR-0437)[/bold #7dd3f5]",
+            title="[bold #7dd3f5]Thunderbolt 5 DMA Sovereign Link (ADR-0439)[/bold #7dd3f5]",
             border_style="#5a7a9a",
             expand=False,
         )

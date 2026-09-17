@@ -1,5 +1,5 @@
 """
-omlxc V5.0 -- Sovereign Mesh DMA Daemon Controller (ADR-0437).
+omlxc V5.0 -- Sovereign Mesh DMA Daemon Controller (ADR-0439).
 
 Manages lifecycle of:
 1. ThunderboltDMABus: Physical P2P 120Gbps link between MBP M5 Max and Mac mini M4.

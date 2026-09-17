@@ -1,4 +1,4 @@
-"""Unit tests for omlxc V5.0 DMA Daemon Controller (ADR-0437)."""
+"""Unit tests for omlxc V5.0 DMA Daemon Controller (ADR-0439)."""
 
 from __future__ import annotations
 
