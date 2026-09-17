@@ -1,5 +1,5 @@
 """
-omlxc V5.0 -- Experience Replay Buffer for LoRA Signature Alignment (ADR-0437).
+omlxc V5.0 -- Experience Replay Buffer for LoRA Signature Alignment (ADR-0439).
 
 Prevents catastrophic forgetting during online LoRA distillation by maintaining
 a bounded reservoir of historical (instruction, reference) pairs and replaying

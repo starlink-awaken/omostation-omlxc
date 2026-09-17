@@ -1,4 +1,4 @@
-"""Unit tests for Experience Replay Buffer (ADR-0437)."""
+"""Unit tests for Experience Replay Buffer (ADR-0439)."""
 
 from __future__ import annotations
 
