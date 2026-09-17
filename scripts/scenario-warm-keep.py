@@ -9,9 +9,10 @@
 卸载 CLI, 无法像 lm_studio 系那样用 --ttl 精确控制, 只能靠"定期戳一下"
 的保活模式让高频模型不因 idle_ttl(1800s) 过期而冷启动。
 
-刻意只覆盖 coding 这一个最高频的开发场景模型, 不做大范围预热 ——
-多个大模型同时驻留是今天已实测过的真实风险(qwen3-coder-next+qwythos
-同时驻留曾把内存打到 510MB), 保活的价值必须和内存压力仔细权衡。
+刻意只覆盖 coding-next 这一个模型 (2026-09-17 起收敛为单一常驻, 取代此前
+coding+qwen-3.8-27b 两个模型同时常驻的配置), 不做大范围预热 —— 多个大
+模型同时驻留是已实测过的真实风险(qwen3-coder-next+qwythos 同时驻留曾把
+内存打到 510MB), 保活的价值必须和内存压力仔细权衡。
 """
 
 from __future__ import annotations
@@ -47,8 +48,13 @@ WARM_TARGETS = [
     # 2026-08-25 #6 定案: embedding(8GB) 迁 mac-mini ollama bge-m3 常驻
     # (remote_resident role=embedding 维护), MBP 常驻 56→48GB; bf16 退役
     # 转正(mac-mini 48h 评审 PASS, 稳态补齐成功率 91%)。
-    ("coding", "coding 场景默认模型, 已验证响应正常且稳定", 24.0, "chat", BASE_URL),
-    ("qwen-3.8-27b", "chat 场景默认模型(真实流量91%走它), 已验证响应正常", 24.0, "chat", BASE_URL),
+    # 2026-09-17 收敛为单一常驻模型: coding(Devstral-24B) 和 qwen-3.8-27b
+    # (27B VLM) 两个都撤下, 改用 coding-next(Qwen3-Coder-30B-A3B MoE,
+    # 4bit, 17.2GB) 一个模型顶两个场景 —— 实测热身后 54.1 tok/s、冷启动
+    # ~10s、上下文窗口比另外两个都大(131072), 已同步改为 claude_code/
+    # integrations 全部工具集成的默认模型别名(~/.omlx/settings.json)。
+    # 之前两个模型同时常驻占约 48GB, 现在一个模型 17.2GB, 省了 30GB+。
+    ("coding-next", "唯一常驻编码/聊天模型(2026-09-17 收敛, 取代 coding+qwen-3.8-27b)", 17.2, "chat", BASE_URL),
     # 2026-08-24 职责转移: mythos 的 LM 兜底已由 mac-mini 常驻(4.78GB 量化版,
     # remote-resident-maintain 维护)接管, oMLX 侧 mythos 为主路径 —— MBP 的
     # bf16(18.84GB)纯冗余且是 swap 压力大头, 移出保活并手动卸载。若 mac-mini
