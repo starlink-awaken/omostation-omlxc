@@ -1,3 +1,11 @@
+---
+type: derived
+source: projects/omlxc
+owner: governance-team
+last_updated: 2026-09-18
+last-reviewed: 2026-09-18
+---
+
 # Session guide
 
 Read `AGENTS.md`, inspect `git status --short`, then read the relevant tests and

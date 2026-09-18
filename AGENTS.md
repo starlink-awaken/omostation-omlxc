@@ -1,3 +1,11 @@
+---
+type: derived
+source: projects/omlxc
+owner: governance-team
+last_updated: 2026-09-18
+last-reviewed: 2026-09-18
+---
+
 # Project instructions
 
 - Keep v3 work in `src/omlxc` and preserve `bin/omlx` unless a task explicitly
