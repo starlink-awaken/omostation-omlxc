@@ -33,6 +33,12 @@ if ! check_http "http://127.0.0.1:8000/v1/models"; then
   log "[WARN] oMLX App 端口 8000 无响应 — watchdog 不再自动重启(launchd 拉起必卡死, 见脚本注释), 已发桌面通知提醒手动处理"
   osascript -e 'display notification "oMLX 本地服务无响应, 请打开一个终端窗口(会自动检测拉起)或手动运行 omlx-server-ensure.sh" with title "oMLX 服务告警"' >/dev/null 2>&1
 fi
+# --- 孤儿 omlx-server 自动清理 (2026-09-17: GUI 退出后子进程未跟随退出, 持续占 8000 端口, GUI 重开时端口冲突打不开) ---
+_orphan_pids=$(ps -ax -o pid,ppid,comm 2>/dev/null | awk '$2==1 && /omlx-server/ {print $1}')
+if [ -n "$_orphan_pids" ] && ! pgrep -x "oMLX" > /dev/null 2>&1; then
+  for _pid in $_orphan_pids; do log "[WARN] 孤儿 omlx-server PID=$_pid, kill 释放端口"; kill "$_pid" 2>/dev/null; done
+  sleep 2
+fi
 
 # --- 共享 worktree detached HEAD 告警 (2026-08-25 二发事故催生) ---
 # 08-24 与 08-25 两起: 并行 agent/机制把共享主 worktree checkout 到旧
