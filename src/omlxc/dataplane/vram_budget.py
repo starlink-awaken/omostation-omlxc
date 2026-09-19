@@ -55,10 +55,13 @@ DEFAULT_ARCH_PROFILES: Final[dict[str, ModelArchitectureMeta]] = {
     "qwen-3.8-27b": ModelArchitectureMeta("qwen-3.8-27b", 64, 8, 128, 2, 13500.0),
     "qwen-3.8-27b-dflash": ModelArchitectureMeta("qwen-3.8-27b-dflash", 64, 8, 128, 2, 18500.0),
     "coding": ModelArchitectureMeta("coding", 64, 8, 128, 2, 17500.0),
+    "coding-qwen3-30b-a3b": ModelArchitectureMeta("coding-qwen3-30b-a3b", 64, 8, 128, 2, 18000.0),
+    "glm-4.7-flash": ModelArchitectureMeta("glm-4.7-flash", 48, 8, 128, 2, 19000.0),
     # 9B~14B class models
     "qwen-3.5-9b": ModelArchitectureMeta("qwen-3.5-9b", 32, 4, 128, 2, 6200.0),
     "gemma-9b": ModelArchitectureMeta("gemma-9b", 42, 8, 256, 2, 6800.0),
-    # 2B~4B class lightweight models
+    # 2B~6B class lightweight / vision models
+    "vision-minicpm": ModelArchitectureMeta("vision-minicpm", 36, 4, 128, 2, 6500.0),
     "gemma-4b": ModelArchitectureMeta("gemma-4b", 26, 4, 256, 2, 2800.0),
     "gemma-2b": ModelArchitectureMeta("gemma-2b", 18, 1, 256, 2, 1600.0),
 }

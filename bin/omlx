@@ -1086,14 +1086,23 @@ def cmd_bench(conf, args):
 
 def _scan(conf):
     rows=[]
-    root=conf["active_root"]
+    root=conf.get("active_root")
+    if not root or not os.path.exists(root):
+        return rows
     for cat in sorted(os.listdir(root)):
         cd=os.path.join(root,cat)
         if not os.path.isdir(cd): continue
         for name in sorted(os.listdir(cd)):
-            real=os.path.realpath(os.path.join(cd,name))
-            r={"cat":cat,"alias":name,"real":real,"issues":[]}
-            if not os.path.exists(real): r["issues"].append("BROKEN_LINK"); rows.append(r); continue
+            link_path = os.path.join(cd, name)
+            real=os.path.realpath(link_path)
+            r={"cat":cat,"alias":name,"link_path":link_path,"real":real,"issues":[]}
+            if not os.path.exists(real):
+                r["issues"].append("BROKEN_LINK")
+                cand = _find_healing_candidate(name, real)
+                if cand:
+                    r["heal_candidate"] = cand
+                rows.append(r)
+                continue
             st=glob.glob(real+"/*.safetensors"); gg=glob.glob(real+"/*.gguf")
             if gg and not st: r["issues"].append("GGUF_NOT_MLX")
             if not st and not gg: r["issues"].append("NO_WEIGHTS")
@@ -1150,23 +1159,44 @@ def cmd_doctor(conf, args):
         problems=r["issues"]
         tag = green("OK") if not problems else red(",".join(problems))
         print(f"  [{r['cat']}/{r['alias']}] {tag}")
-        if args.fix and "MTP_ON" in r["issues"] and r.get("cfg"):
-            cfg=json.load(open(r["cfg"]))
-            bak=r["cfg"]+".bak"
-            if not os.path.exists(bak): json.dump(cfg, open(bak,"w"), indent=2)
-            def fix(o):
-                n=0
-                if isinstance(o,dict):
-                    for k,v in o.items():
-                        if k=="mtp_num_hidden_layers" and isinstance(v,int) and v>0: o[k]=0; n+=1
-                        else: n+=fix(v)
-                elif isinstance(o,list):
-                    for v in o: n+=fix(v)
-                return n
-            n=fix(cfg)
-            if n: json.dump(cfg, open(r["cfg"],"w"), indent=2); fixed+=1; print(yel(f"      → 已修 MTP {n} 处 (备份 {os.path.basename(bak)})"))
-    if args.fix: print(green(f"\n修复完成，共处理 {fixed} 个模型"))
-    else: print(dim("\n加 --fix 自动修正 MTP 类问题(会先备份 config.json)"))
+        if "BROKEN_LINK" in r["issues"]:
+            if r.get("heal_candidate"):
+                print(yel(f"      ↳ 可自愈目标: {r['heal_candidate']}"))
+            else:
+                print(dim(f"      ↳ 原始失效路径: {r['real']}"))
+
+        if args.fix:
+            if "BROKEN_LINK" in r["issues"]:
+                link = r.get("link_path")
+                if link and r.get("heal_candidate"):
+                    if os.path.islink(link) or os.path.exists(link):
+                        os.remove(link)
+                    os.symlink(r["heal_candidate"], link)
+                    fixed += 1
+                    print(yel(f"      → [自愈] 重定向软链至: {r['heal_candidate']}"))
+                elif link and getattr(args, "prune_dead_links", False):
+                    if os.path.islink(link) or os.path.exists(link):
+                        os.remove(link)
+                    fixed += 1
+                    print(yel(f"      → [清理] 已移除死链: {link}"))
+
+            if "MTP_ON" in r["issues"] and r.get("cfg"):
+                cfg=json.load(open(r["cfg"]))
+                bak=r["cfg"]+".bak"
+                if not os.path.exists(bak): json.dump(cfg, open(bak,"w"), indent=2)
+                def fix(o):
+                    n=0
+                    if isinstance(o,dict):
+                        for k,v in o.items():
+                            if k=="mtp_num_hidden_layers" and isinstance(v,int) and v>0: o[k]=0; n+=1
+                            else: n+=fix(v)
+                    elif isinstance(o,list):
+                        for v in o: n+=fix(v)
+                    return n
+                n=fix(cfg)
+                if n: json.dump(cfg, open(r["cfg"],"w"), indent=2); fixed+=1; print(yel(f"      → 已修 MTP {n} 处 (备份 {os.path.basename(bak)})"))
+    if args.fix: print(green(f"\n修复完成，共处理 {fixed} 个模型问题"))
+    else: print(dim("\n加 --fix 自动修正 MTP / 死链自愈 (加 --prune-dead-links 清除无法自愈死链)"))
 
 def cmd_use(conf, args):
     cat=args.category; alias=args.alias
@@ -2319,13 +2349,69 @@ def _linked_realpaths(conf):
                 if os.path.exists(rp): out.add(rp)
     return out
 
-def _scan_disk_mlx(base="/Volumes/Model/LMStudio"):
+def _scan_disk_mlx(base="/Volumes/Model/LMStudio", extra_roots=None):
     seen = []
-    for st in sorted(glob.glob(base + "/*/*/*.safetensors")):
-        d = os.path.dirname(st)
-        if d not in seen:
-            seen.append(d)
-    return [(d, d.replace(base + "/", "")) for d in seen]
+    results = []
+
+    search_roots = [base] if base and os.path.exists(base) else []
+    if extra_roots:
+        search_roots.extend(extra_roots)
+    else:
+        search_roots.extend([
+            os.path.expanduser("~/.cache/huggingface/hub"),
+            os.path.expanduser("~/.lmstudio/models"),
+            os.path.expanduser("~/models"),
+            os.path.expanduser("~/.cache/mlx"),
+        ])
+
+    for root in search_roots:
+        if not root or not os.path.exists(root):
+            continue
+        # 1. 扫描两级目录: root/*/*/*.safetensors
+        for st in sorted(glob.glob(os.path.join(root, "*", "*", "*.safetensors"))):
+            d = os.path.dirname(st)
+            if d not in seen and os.path.isdir(d):
+                seen.append(d)
+                rel = os.path.relpath(d, root)
+                results.append((d, rel))
+        # 2. 扫描单级目录: root/*/*.safetensors
+        for st in sorted(glob.glob(os.path.join(root, "*", "*.safetensors"))):
+            d = os.path.dirname(st)
+            if d not in seen and os.path.isdir(d):
+                seen.append(d)
+                rel = os.path.relpath(d, root)
+                results.append((d, rel))
+        # 3. 扫描 HuggingFace Hub 结构: models--*/*/snapshots/*
+        if "huggingface" in root:
+            for snap in sorted(glob.glob(os.path.join(root, "models--*", "snapshots", "*"))):
+                if os.path.isdir(snap) and glob.glob(os.path.join(snap, "*.safetensors")):
+                    if snap not in seen:
+                        seen.append(snap)
+                        parts = snap.split(os.sep)
+                        model_dir_name = [p for p in parts if p.startswith("models--")]
+                        if model_dir_name:
+                            clean_name = model_dir_name[0].replace("models--", "").replace("--", "/")
+                            results.append((snap, clean_name))
+                        else:
+                            results.append((snap, os.path.basename(snap)))
+    return results
+
+def _find_healing_candidate(alias, dead_real):
+    """当发生软链死链时，从本地多源模型目录中寻找同名或最匹配的有效模型目录。"""
+    try:
+        available = _scan_disk_mlx()
+        target_token = os.path.basename(dead_real).lower().replace("-", "").replace("_", "")
+        alias_token = alias.lower().replace("-", "").replace("_", "")
+        for d, sub in available:
+            sub_token = os.path.basename(d).lower().replace("-", "").replace("_", "")
+            if target_token and (target_token in sub_token or sub_token in target_token):
+                return d
+            if alias_token and (alias_token in sub_token or sub_token in alias_token):
+                return d
+    except Exception:
+        pass
+    return None
+
 
 def _is_audio(name):
     n = name.lower()
@@ -2379,7 +2465,7 @@ def _next_free_port(conf, used):
     die("无空闲端口(8086-8099/8189-8199 都占了)")
 
 def cmd_link(conf, args):
-    base = "/Volumes/Model/LMStudio"
+    base = getattr(args, "source", None) or "/Volumes/Model/LMStudio"
     linked = _linked_realpaths(conf)
     all_un = [(d, sub) for d, sub in _scan_disk_mlx(base) if os.path.realpath(d) not in linked]
     audio = [(d, sub) for d, sub in all_un if _is_audio(os.path.basename(d))]
@@ -2603,7 +2689,7 @@ def main():
     s=sub.add_parser("bench"); s.add_argument("model"); s.add_argument("--iterations",type=int,default=5); s.add_argument("--max-tokens",type=int,default=256); s.add_argument("--max-growth-mb",type=int,default=512); s.add_argument("--min-free-percent",type=float,default=20); s.add_argument("--prompt"); s.add_argument("--json",action="store_true")
     s=sub.add_parser("tune"); g=s.add_mutually_exclusive_group(); g.add_argument("--apply",action="store_true"); g.add_argument("--rollback"); s.add_argument("--yes",action="store_true"); s.add_argument("--restart",action="store_true"); s.add_argument("--json",action="store_true")
     s=sub.add_parser("fleet-tune"); s.add_argument("--apply",action="store_true"); s.add_argument("--yes",action="store_true"); s.add_argument("--allow-partial",action="store_true"); s.add_argument("--json",action="store_true")
-    s=sub.add_parser("doctor"); s.add_argument("--fix",action="store_true")
+    s=sub.add_parser("doctor"); s.add_argument("--fix",action="store_true"); s.add_argument("--prune-dead-links",action="store_true",help="自动移除无自愈源的死链")
     s=sub.add_parser("use"); s.add_argument("category"); s.add_argument("alias")
     sub.add_parser("models")
     s=sub.add_parser("resolve"); s.add_argument("name"); s.add_argument("--json",action="store_true")
@@ -2619,7 +2705,7 @@ def main():
     sub.add_parser("stats")
     sub.add_parser("portcheck")
     s=sub.add_parser("ssot-sync"); s.add_argument("--apply",action="store_true"); s.add_argument("--dry",action="store_true")
-    s=sub.add_parser("link"); s.add_argument("--apply", action="store_true")
+    s=sub.add_parser("link"); s.add_argument("--apply", action="store_true"); s.add_argument("--source", help="指定额外扫描目录")
     s=sub.add_parser("warm"); s.add_argument("preset", nargs="?")
     s=sub.add_parser("load"); s.add_argument("model")
     s=sub.add_parser("unload"); s.add_argument("model")

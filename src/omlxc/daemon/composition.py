@@ -292,9 +292,11 @@ class CatalogProbe:
         # 目标模型处于 loaded 态, 每轮探测必被 backend 级超时先掐死 →
         # _fail_stale → 全部 placement 误判 stale —— 2026-08-24 mbp 本机
         # LM Studio "全灭"误报与路由不敢选 LM 兜底的共同根因。
-        # 取 max(5.0, interval): 生产 interval=10s 给足余量; 极小 interval
-        # 也保底 5s, 不比单次 probe chat 更紧。
-        self._timeout = max(5.0, self._interval)
+        # 2026-09-19: 修复 probe_interval_seconds=45s 时 self._timeout 达到 45s
+        # 撞破 DaemonServer startup_timeout=30s 导致守护进程启动超时无限崩溃重启的严重缺陷。
+        # 探测预算取 min(max(5.0, self._interval), 15.0): 既保证 >=5.0s 覆盖 LM Studio
+        # 的 6s 结构性开销，又严格限制上限在 15.0s，防止打穿启动超时。
+        self._timeout = min(max(5.0, self._interval), 15.0)
         self._placements = {item.id: item for item in config.placements}
         self._models = {item.id: item for item in config.models}
         self._nodes = {item.id: item for item in config.nodes}
@@ -370,8 +372,13 @@ class CatalogProbe:
             await self._tailscale.snapshot()
 
     async def _probe_backend(self, backend: BackendConfig, authorization: asyncio.Task[None] | None) -> None:
+        backend_timeout = (
+            min(self._timeout, backend.probe_timeout_seconds)
+            if backend.probe_timeout_seconds is not None
+            else self._timeout
+        )
         try:
-            async with asyncio.timeout(self._timeout):
+            async with asyncio.timeout(backend_timeout):
                 authorized, local = await self._authorize(backend, authorization)
                 if not authorized or not local:
                     raise PermissionError("backend endpoint is not authorized")
@@ -383,7 +390,7 @@ class CatalogProbe:
             self._diagnostics[backend.id] = NodeDiagnosticCode.AUTHORIZATION_DENIED
             return
         try:
-            async with asyncio.timeout(self._timeout):
+            async with asyncio.timeout(backend_timeout):
                 adapter = self._adapters[backend.id]
                 capability = await adapter.discover()
                 if capability.backend_id != backend.id:
@@ -478,7 +485,7 @@ class CatalogProbe:
                 context_limit=(
                     model.context_limit
                     if model is not None and model.context_limit is not None
-                    else placement.context_limit
+                    else (placement.context_limit if placement.context_limit is not None else 32768)
                 ),
                 memory_admitted=self._memory_admitted(placement),
                 loaded=loaded,
@@ -509,10 +516,18 @@ class CatalogProbe:
         )
 
     def _memory_admitted(self, placement: PlacementConfig) -> bool | None:
-        if placement.memory_gb is None:
+        memory_gb = placement.memory_gb
+        if memory_gb is None:
+            configured_model = self._models.get(placement.model_id)
+            if configured_model is not None and configured_model.size_gb is not None:
+                memory_gb = configured_model.size_gb
+        if memory_gb is None:
             return None
-        available = self._nodes[self._backend_nodes[placement.backend_id]].memory_gb
-        return None if available is None else placement.memory_gb <= available
+        node_id = self._backend_nodes.get(placement.backend_id)
+        if node_id is None:
+            return None
+        available = self._nodes[node_id].memory_gb
+        return None if available is None else memory_gb <= available
 
     def _fail_authorization(self, backend_id: str) -> None:
         for snapshot in self._catalog.get():
@@ -1599,7 +1614,7 @@ def _configured_snapshots(config: AppConfig) -> tuple[PlacementSnapshot, ...]:
                 available=False,
                 authorized=False,
                 capabilities=frozenset(item.value for item in capabilities),
-                context_limit=placement.context_limit,
+                context_limit=placement.context_limit if placement.context_limit is not None else 32768,
                 memory_admitted=None,
                 loaded=placement.resident,
                 ttft_ms=None,
