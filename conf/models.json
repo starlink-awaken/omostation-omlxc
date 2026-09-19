@@ -481,6 +481,91 @@
       },
       "note": "Qwen 3.5 9B on macmini Ollama — eval 36.3 tok/s",
       "size_gb": 6
+    },
+    "coding-qwen3-30b-a3b": {
+      "category": "coding",
+      "alias": "coding/qwen3-coder-30b-a3b-4bit",
+      "port": 8090,
+      "engine": "mlx_lm",
+      "role": "chat",
+      "reasoning": false,
+      "params": {
+        "temp": 0.1,
+        "top_p": 0.9,
+        "kv_bits": 8,
+        "max_tokens": 4096,
+        "chat_template_args": {
+          "enable_thinking": false
+        }
+      },
+      "note": "Qwen3-Coder-30B-A3B-Instruct 4bit (新一代主力MoE编码模型，高吞吐低延迟)",
+      "size_gb": 18
+    },
+    "vision-minicpm": {
+      "category": "vision",
+      "alias": "vision/minicpm-v-4.6-4bit",
+      "port": 8197,
+      "engine": "mlx_vlm",
+      "role": "vision",
+      "reasoning": false,
+      "params": {
+        "temp": 0.2,
+        "max_tokens": 2048
+      },
+      "requires_pip": "mlx-vlm",
+      "note": "MiniCPM-V-4.6 4bit (旗舰级端侧视觉多模态，高清晰度OCR/图表解析)",
+      "size_gb": 6.5
+    },
+    "glm-4.7-flash": {
+      "category": "reasoning",
+      "alias": "reasoning/glm-4.7-flash",
+      "engine": "ollama",
+      "role": "chat",
+      "reasoning": true,
+      "params": {
+        "max_tokens": 8192,
+        "temp": 0.3
+      },
+      "note": "GLM-4.7-Flash 29.9B MoE 推理模型 (Ollama 实测即调即用，支持 Thinking 思考链)",
+      "size_gb": 19
+    },
+    "qwen3.8-27b-ollama": {
+      "category": "chat",
+      "alias": "chat/qwen3.8-27b-mlx",
+      "engine": "ollama",
+      "role": "chat",
+      "reasoning": false,
+      "params": {
+        "max_tokens": 4096,
+        "temp": 0.2
+      },
+      "note": "Qwen 3.8 27B MLX/nvfp4 (Ollama 实测 18GB，全能主力，支持视觉+代码+长上下文)",
+      "size_gb": 18
+    },
+    "qwythos-9b-1m": {
+      "category": "chat",
+      "alias": "chat/qwythos-9b-1m",
+      "engine": "ollama",
+      "role": "chat",
+      "reasoning": false,
+      "params": {
+        "max_tokens": 4096,
+        "temp": 0.7
+      },
+      "note": "Qwythos 9B 1M 上下文 Claude 风格角色扮演与长文审阅 (Ollama 6.8GB)",
+      "size_gb": 6.8
+    },
+    "bge-reranker-ollama": {
+      "category": "retrieval",
+      "alias": "retrieval/bge-reranker-v2-m3",
+      "engine": "ollama",
+      "role": "chat",
+      "reasoning": false,
+      "params": {
+        "max_tokens": 2048
+      },
+      "note": "BGE Reranker v2 M3 (Ollama 438MB 极速重排)",
+      "size_gb": 0.5
     }
   },
   "cluster": {
@@ -650,22 +735,22 @@
     "baai-bge-reranker-v2-m3-mlx-fp16": "baai-bge-reranker-v2-m3-mlx"
   },
   "fallback_ollama": {
-    "_comment": "oMLX App 与 LM Link 都失败后的第二兜底。只登记能力足够接近且当前节点真实存在的模型。",
-    "coding": "qwen3.5:9b",
-    "coding-fast": "qwen3.5:9b",
-    "coding-next": "qwen3.5:9b",
-    "coder-precise": "qwen3.5:9b",
-    "mid-local": "qwen3.5:9b",
-    "qwen-3.5-9b-flash": "qwen3.5:9b",
-    "qwen-3.5-9b-pro": "qwen3.5:9b",
-    "qwen-3.8-27b": "qwen3.5:9b",
-    "reasoning": "qwen3.5:9b",
-    "reasoning-lite": "qwen3.5:9b",
-    "mistral-medium-128b": "qwen3.5:9b",
-    "nemotron-omni": "qwen3.5:9b",
-    "mythos": "qwen3.5:9b",
-    "mythos-fast": "qwen3.5:9b",
+    "_comment": "oMLX App 与 LM Link 都失败后的第二兜底。精确对齐本机 Ollama 真实存在的现役模型。",
+    "coding": "qwen3.8:27b-mlx",
+    "coding-fast": "qwen3.8:27b-mlx",
+    "coding-next": "qwen3.8:27b-mlx",
+    "coder-precise": "qwen3.8:27b-mlx",
+    "coding-qwen3-30b-a3b": "qwen3.8:27b-mlx",
+    "mid-local": "qwen3.8:27b-mlx",
+    "qwen-3.8-27b": "qwen3.8:27b-mlx",
+    "reasoning": "glm-4.7-flash:q4_k_m",
+    "reasoning-lite": "glm-4.7-flash:q4_k_m",
+    "glm-4.7-flash": "glm-4.7-flash:q4_k_m",
+    "mythos": "pdurlej/qwythos-9b-claude-mythos-5-1m:q4_k_m",
+    "mythos-fast": "pdurlej/qwythos-9b-claude-mythos-5-1m:q4_k_m",
+    "qwen-3.5-9b-flash": "qwen3.8:27b-mlx",
     "embedding": "nomic-embed-text:latest",
-    "embed-bge-m3": "nomic-embed-text:latest"
+    "embed-bge-m3": "nomic-embed-text:latest",
+    "baai-bge-reranker-v2-m3-mlx-fp16": "qllama/bge-reranker-v2-m3:q4_k_m"
   }
 }

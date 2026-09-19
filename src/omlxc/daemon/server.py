@@ -36,7 +36,7 @@ class DaemonServer:
         *,
         socket_path: Path,
         server_factory: ServerFactory | None = None,
-        startup_timeout: float = 30.0,
+        startup_timeout: float = 60.0,
         shutdown_timeout: int = 2,
     ) -> None:
         self._application = application
