@@ -115,6 +115,20 @@ class FakeClient:
             }
         )
 
+    async def test_route(self, model_id: str) -> DaemonEnvelope:
+        self.calls.append(("test_route", model_id))
+        return _envelope(
+            {
+                "model": model_id,
+                "placement_id": "mbp-omlx-a",
+                "backend_id": "omlx-app",
+                "profile": "interactive",
+                "finish_reason": "stop",
+                "response_present": True,
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+            }
+        )
+
     async def load_model(self, model_id: str, *, idempotency_key: str | None = None) -> DaemonEnvelope:
         self.calls.append(("load", model_id, idempotency_key))
         return _envelope({"id": "job-load", "state": "pending", "kind": "load"})
@@ -637,6 +651,17 @@ def test_nodes_diagnose_reads_safe_cached_outcomes_without_triggering_a_probe(
     payload = json.loads(result.stdout)
     assert payload["data"]["outcomes"] == [{"code": "probe_failed", "count": 1}]
     assert fake_client.calls == [("node_diagnostics", "mbp")]
+
+
+def test_routes_test_calls_one_redacted_inference_canary(fake_client: FakeClient) -> None:
+    result = runner.invoke(app, ["routes", "test", "local/model-a", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["data"]["response_present"] is True
+    assert payload["data"]["placement_id"] == "mbp-omlx-a"
+    assert "content" not in payload["data"]
+    assert fake_client.calls == [("test_route", "local/model-a")]
 
 
 def test_status_json_bytes_remain_unchanged(fake_client: FakeClient) -> None:

@@ -23,13 +23,15 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from omlxc.config import AppConfig, load_user_config
 
 NODES_CONFIG = [
     {
@@ -42,7 +44,7 @@ NODES_CONFIG = [
         "engines": {
             "lmstudio": {"port": 1234, "path": "/v1/models"},
             "ollama": {"port": 11434, "path": "/api/tags"},
-            "omlxc": {"uds": "/tmp/omlxc.sock", "path": "/health"},
+            "omlxc": {"path": "/api/v1/health"},
         },
     },
     {
@@ -110,7 +112,7 @@ def ping_host(host: str, timeout: int = 2) -> tuple[bool, float | None]:
     cmd = ["ping", "-c", "1", "-W", str(timeout * 1000), host]
     try:
         t0 = time.time()
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout + 1)
+        res = subprocess.run(cmd, capture_output=True, timeout=timeout + 1)
         rtt = (time.time() - t0) * 1000
         if res.returncode == 0:
             return True, round(rtt, 1)
@@ -122,7 +124,7 @@ def ping_host(host: str, timeout: int = 2) -> tuple[bool, float | None]:
 def check_ssh(ssh_host: str, timeout: int = 3) -> bool:
     cmd = ["ssh", "-o", f"ConnectTimeout={timeout}", "-o", "StrictHostKeyChecking=no", ssh_host, "echo ok"]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout + 1)
+        res = subprocess.run(cmd, capture_output=True, timeout=timeout + 1)
         return res.returncode == 0
     except Exception:
         return False
@@ -166,7 +168,6 @@ def probe_ollama(host: str, port: int) -> EngineStatus:
     if data and "models" in data:
         status.alive = True
         status.model_count = len(data["models"])
-        models_list = [m["name"] for m in data["models"]]
         # 检查正在运行的模型 (ps)
         ps_data = http_get_json(f"http://{host}:{port}/api/ps")
         if ps_data and "models" in ps_data and ps_data["models"]:
@@ -178,9 +179,20 @@ def probe_ollama(host: str, port: int) -> EngineStatus:
     return status
 
 
-def probe_omlxc_local(uds_path: str) -> EngineStatus:
+def resolve_omlxc_socket(
+    override: Path | None,
+    *,
+    config_loader: Callable[[], AppConfig] = load_user_config,
+) -> Path:
+    """Use the explicit socket or the same user/default config as the CLI."""
+    if override is not None:
+        return override.expanduser()
+    return config_loader().daemon.socket_path
+
+
+def probe_omlxc_local(uds_path: Path) -> EngineStatus:
     status = EngineStatus(name="omlxc")
-    if Path(uds_path).exists():
+    if uds_path.exists():
         status.alive = True
         status.detail = "UDS Socket 就绪"
     else:
@@ -208,7 +220,12 @@ def ping_pong_infer(host: str, port: int, engine: str, model_id: str) -> float |
     return None
 
 
-def probe_node(node_cfg: dict, run_infer: bool = False) -> NodeReport:
+def probe_node(
+    node_cfg: dict,
+    run_infer: bool = False,
+    *,
+    omlxc_socket: Path | None = None,
+) -> NodeReport:
     report = NodeReport(id=node_cfg["id"], name=node_cfg["name"], role=node_cfg["role"])
     host = node_cfg["ip"]
     is_local = node_cfg.get("is_local", False)
@@ -233,7 +250,7 @@ def probe_node(node_cfg: dict, run_infer: bool = False) -> NodeReport:
 
     for eng_name, eng_meta in engines.items():
         if eng_name == "omlxc":
-            eng_status = probe_omlxc_local(eng_meta.get("uds", "/tmp/omlxc.sock"))
+            eng_status = probe_omlxc_local(omlxc_socket or resolve_omlxc_socket(None))
         elif eng_name == "lmstudio":
             eng_status = probe_lmstudio(host, eng_meta["port"])
         elif eng_name == "ollama":
@@ -297,14 +314,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="OMOSTATION Compute Mesh Pulse")
     parser.add_argument("--json", action="store_true", help="输出结构化 JSON 格式")
     parser.add_argument("--probe-infer", action="store_true", help="执行轻量端到端推理抽测")
+    parser.add_argument("--omlxc-socket", type=Path, help="覆盖私有 omlxcd Unix socket 路径")
     parser.add_argument("--save", action="store_true", help="保存状态至 .omo/state/compute-mesh-pulse.json")
     args = parser.parse_args()
+    omlxc_socket = resolve_omlxc_socket(args.omlxc_socket)
 
     checked_at = time.strftime("%Y-%m-%d %H:%M:%S")
 
     # 并发探测所有节点
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(probe_node, node, args.probe_infer) for node in NODES_CONFIG]
+        futures = [
+            executor.submit(probe_node, node, args.probe_infer, omlxc_socket=omlxc_socket)
+            for node in NODES_CONFIG
+        ]
         reports = [f.result() for f in futures]
 
     if args.json:

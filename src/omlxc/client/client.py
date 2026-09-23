@@ -115,6 +115,70 @@ class DaemonClient:
     async def plan_route(self, body: Mapping[str, JsonValue]) -> DaemonEnvelope:
         return await self._request("POST", "/api/v1/routes/plan", json=dict(body))
 
+    async def test_route(self, model_id: str) -> DaemonEnvelope:
+        """Run one bounded inference canary without returning prompt or content."""
+        request_id = self._new_request_id()
+        response = await self._raw_request(
+            "POST",
+            "/openai/v1/chat/completions",
+            request_id=request_id,
+            json={
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Reply OK"}],
+                "max_tokens": 32,
+                "temperature": 0.0,
+                "stream": False,
+                "profile": "interactive",
+            },
+        )
+        self._validate_identity(response, request_id)
+        if _media_type(response) != JSON_MEDIA_TYPE:
+            raise _malformed(request_id)
+        if response.status_code < 200 or response.status_code >= 300:
+            self._raise_openai_error(response, request_id)
+        try:
+            parsed = cast(object, response.json())
+            if not isinstance(parsed, dict):
+                raise ValueError("unexpected completion document")
+            payload = cast(dict[str, object], parsed)
+            if payload.get("object") != "chat.completion":
+                raise ValueError("unexpected completion object")
+            selected_model = _bounded_identifier(payload.get("model"))
+            raw_choices = payload.get("choices")
+            if not isinstance(raw_choices, list):
+                raise ValueError("unexpected completion choices")
+            choices = cast(list[object], raw_choices)
+            if len(choices) != 1 or not isinstance(choices[0], dict):
+                raise ValueError("unexpected completion choices")
+            choice = cast(dict[str, object], choices[0])
+            raw_message = choice.get("message")
+            if not isinstance(raw_message, dict):
+                raise ValueError("unexpected completion message")
+            message = cast(dict[str, object], raw_message)
+            content = message.get("content")
+            if content is not None and not isinstance(content, str):
+                raise ValueError("unexpected completion content")
+            raw_tool_calls = message.get("tool_calls")
+            if raw_tool_calls is not None and not isinstance(raw_tool_calls, list):
+                raise ValueError("unexpected tool calls")
+            tool_calls = None if raw_tool_calls is None else cast(list[object], raw_tool_calls)
+            finish_reason = choice.get("finish_reason")
+            if finish_reason is not None and not isinstance(finish_reason, str):
+                raise ValueError("unexpected finish reason")
+            usage = _token_usage(payload.get("usage"))
+            data: dict[str, JsonValue] = {
+                "model": selected_model,
+                "placement_id": _bounded_identifier(response.headers.get("X-OMLXC-Placement")),
+                "backend_id": _bounded_identifier(response.headers.get("X-OMLXC-Backend")),
+                "profile": _bounded_identifier(response.headers.get("X-OMLXC-Profile")),
+                "finish_reason": finish_reason,
+                "response_present": bool((content or "").strip() or tool_calls),
+                "usage": usage,
+            }
+            return DaemonEnvelope(schema_version=1, request_id=request_id, data=data)
+        except (TypeError, ValueError, json.JSONDecodeError, ValidationError) as exc:
+            raise _malformed(request_id) from exc
+
     async def load_model(self, model_id: str, *, idempotency_key: str | None = None) -> DaemonEnvelope:
         return await self._model_operation("load", model_id, idempotency_key)
 
@@ -286,6 +350,32 @@ class DaemonClient:
             raise _malformed(request_id)
         raise DaemonClientError(envelope.error, request_id=request_id)
 
+    def _raise_openai_error(self, response: httpx.Response, request_id: str) -> Never:
+        try:
+            parsed = cast(object, response.json())
+            if not isinstance(parsed, dict):
+                raise ValueError("missing OpenAI error document")
+            payload = cast(dict[str, object], parsed)
+            raw_error = payload.get("error")
+            if not isinstance(raw_error, dict):
+                raise ValueError("missing OpenAI error")
+            error = cast(dict[str, object], raw_error)
+            error_type = error.get("type")
+            if not isinstance(error_type, str):
+                raise ValueError("missing OpenAI error type")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise _malformed(request_id) from exc
+        code, message, retryable = {
+            "timeout": ("E305", "daemon request timed out", True),
+            "insufficient_capacity": ("E400", "local route has no eligible candidate", True),
+            "unsupported_feature": ("E100", "route test is unsupported for this model", False),
+            "backend_unavailable": ("E200", "local inference is unavailable", True),
+        }.get(error_type, ("E900", "local inference returned an invalid error", False))
+        raise DaemonClientError(
+            RemoteError(code=code, message=message, retryable=retryable),
+            request_id=request_id,
+        )
+
     def _validate_identity(self, response: httpx.Response, request_id: str) -> None:
         if response.headers.get("X-OMLXC-Request-ID") != request_id:
             raise _malformed(request_id)
@@ -322,6 +412,30 @@ def _page_params(*, after: str | None, limit: int) -> dict[str, str | int]:
 
 def _media_type(response: httpx.Response) -> str:
     return response.headers.get("content-type", "").partition(";")[0].strip().lower()
+
+
+def _bounded_identifier(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 256
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("invalid public identifier")
+    return value
+
+
+def _token_usage(value: object) -> dict[str, JsonValue]:
+    if not isinstance(value, dict):
+        raise ValueError("invalid token usage")
+    mapping = cast(dict[str, object], value)
+    usage: dict[str, JsonValue] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        count = mapping.get(key)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("invalid token usage")
+        usage[key] = count
+    return usage
 
 
 def _malformed(request_id: str, message: str = "invalid daemon response") -> DaemonClientError:
