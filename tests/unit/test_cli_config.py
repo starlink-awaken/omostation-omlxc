@@ -80,7 +80,7 @@ database_path = "{tmp_path / "state.db"}"
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == "1"
+    assert payload["schema_version"] == 1
     assert payload["request_id"]
     assert payload["data"] == {
         "config_schema_version": 1,
@@ -100,7 +100,7 @@ def test_config_validate_emits_sanitized_structured_error(tmp_path: Path) -> Non
     assert result.exit_code == 2
     assert result.stdout == ""
     payload = json.loads(result.stderr)
-    assert payload["schema_version"] == "1"
+    assert payload["schema_version"] == 1
     assert payload["request_id"]
     assert payload["error"]["code"] == "E100"
     assert "must-not-leak" not in result.stderr
@@ -139,7 +139,7 @@ def test_config_migrate_defaults_to_summary_plan_without_writing(tmp_path: Path)
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == "1"
+    assert payload["schema_version"] == 1
     assert payload["request_id"]
     assert payload["data"]["model_count"] == 1
     assert payload["data"]["node_count"] == 1

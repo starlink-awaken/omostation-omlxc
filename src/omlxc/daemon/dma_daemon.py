@@ -180,6 +180,11 @@ def _detect_workspace_root() -> Path:
     return Path.home() / "Workspace"
 
 
+def detect_workspace_root() -> Path:
+    """Public alias for resolving the omostation workspace root from package location."""
+    return _detect_workspace_root()
+
+
 def _log(level: str, msg: str) -> None:
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     print(f"[{ts}] [{level}] [omlxc-dma-daemon] {msg}", flush=True)

@@ -17,7 +17,9 @@ last-reviewed: 2026-09-18
   two-tier semantic caching, thermal/battery awareness, AST-based intent triage,
   0ms TTFT prefix pre-warming, and sliding-window context distillation (ADR-0192).
 - Support CLI governance operations via `omlxc fabric inspect`, `omlxc fabric triage`,
-  `omlxc fabric vram`, `omlxc fabric warm`, and `omlxc fabric compact`.
+  `omlxc fabric vram`, `omlxc fabric warm`, `omlxc fabric compact`,
+  `omlxc fabric snapshot`, `omlxc fabric speculative-eval`, `omlxc fabric dma`,
+  and `omlxc fabric replay`.
 - Do not globally install `omlxc`, modify `/opt/homebrew/bin/omlxc`, contact
   real hardware from ordinary tests, or add public-release material.
 - Keep personal configuration, secrets, model files, logs, and state out of git.
