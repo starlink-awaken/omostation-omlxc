@@ -227,6 +227,109 @@ async def test_openai_model_smoke_is_typed_and_maps_daemon_envelope_errors() -> 
     assert caught.value.exit_code == 3
 
 
+@pytest.mark.asyncio
+async def test_route_test_runs_one_bounded_redacted_openai_canary() -> None:
+    api = _client_api()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        identifier = _request_id(request)
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "application/json",
+                "X-OMLXC-Request-ID": identifier,
+                "X-OMLXC-Placement": "placement-a",
+                "X-OMLXC-Backend": "backend-a",
+                "X-OMLXC-Profile": "interactive",
+            },
+            json={
+                "id": f"chatcmpl-{identifier}",
+                "object": "chat.completion",
+                "model": "local/model-a",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "private completion"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+            },
+        )
+
+    async with api.DaemonClient(Path("/unused/omlxcd.sock"), transport=httpx.MockTransport(handler)) as client:
+        envelope = await client.test_route("local/model-a")
+
+    assert len(seen) == 1
+    assert seen[0].method == "POST"
+    assert seen[0].url.path == "/openai/v1/chat/completions"
+    assert json.loads(seen[0].content) == {
+        "model": "local/model-a",
+        "messages": [{"role": "user", "content": "Reply OK"}],
+        "max_tokens": 32,
+        "temperature": 0.0,
+        "stream": False,
+        "profile": "interactive",
+    }
+    assert envelope.data == {
+        "model": "local/model-a",
+        "placement_id": "placement-a",
+        "backend_id": "backend-a",
+        "profile": "interactive",
+        "finish_reason": "stop",
+        "response_present": True,
+        "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+    }
+    assert "private completion" not in envelope.model_dump_json()
+    assert "Reply OK" not in envelope.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_route_test_maps_daemon_error_and_rejects_malformed_success() -> None:
+    api = _client_api()
+
+    def unavailable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            headers={
+                "content-type": "application/json",
+                "X-OMLXC-Request-ID": _request_id(request),
+            },
+            json={
+                "error": {
+                    "message": "local inference failed",
+                    "type": "backend_unavailable",
+                    "code": "backend_unavailable",
+                }
+            },
+        )
+
+    async with api.DaemonClient(Path("/unused/omlxcd.sock"), transport=httpx.MockTransport(unavailable)) as client:
+        with pytest.raises(api.DaemonClientError) as caught:
+            await client.test_route("local/model-a")
+    assert caught.value.exit_code == 3
+
+    def malformed(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "application/json",
+                "X-OMLXC-Request-ID": _request_id(request),
+                "X-OMLXC-Placement": "placement-a",
+                "X-OMLXC-Backend": "backend-a",
+                "X-OMLXC-Profile": "interactive",
+            },
+            json={"object": "chat.completion", "model": "local/model-a", "choices": []},
+        )
+
+    async with api.DaemonClient(Path("/unused/omlxcd.sock"), transport=httpx.MockTransport(malformed)) as client:
+        with pytest.raises(api.DaemonClientError) as malformed_error:
+            await client.test_route("local/model-a")
+    assert malformed_error.value.exit_code == 10
+
+
 class ChunkedStream(httpx.AsyncByteStream):
     def __init__(self, chunks: tuple[bytes, ...]) -> None:
         self._chunks = chunks

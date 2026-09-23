@@ -372,11 +372,7 @@ class CatalogProbe:
             await self._tailscale.snapshot()
 
     async def _probe_backend(self, backend: BackendConfig, authorization: asyncio.Task[None] | None) -> None:
-        backend_timeout = (
-            min(self._timeout, backend.probe_timeout_seconds)
-            if backend.probe_timeout_seconds is not None
-            else self._timeout
-        )
+        backend_timeout = min(self._timeout, backend.probe_timeout_seconds)
         try:
             async with asyncio.timeout(backend_timeout):
                 authorized, local = await self._authorize(backend, authorization)

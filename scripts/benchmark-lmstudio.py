@@ -60,8 +60,8 @@ def check_lms_status() -> dict[str, Any]:
         lines = [line.strip() for line in res.stdout.strip().split("\n") if line.strip()]
         loaded = []
         if len(lines) > 1:
-            for l in lines[1:]:
-                parts = l.split()
+            for line in lines[1:]:
+                parts = line.split()
                 if parts:
                     loaded.append(parts[0])
         return {"available": True, "loaded": loaded, "raw": res.stdout}

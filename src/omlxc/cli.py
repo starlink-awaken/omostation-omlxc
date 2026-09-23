@@ -802,8 +802,12 @@ def routes_test(
     model_id: Annotated[str, typer.Argument()],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    del model_id
-    _unsupported("routes test", json_output=json_output)
+    _execute(
+        lambda client: client.test_route(model_id),
+        json_output=json_output,
+        renderer=_render_mapping,
+        error_context=ErrorContext.ROUTE,
+    )
 
 
 @routes_app.command("pin")
