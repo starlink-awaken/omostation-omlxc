@@ -67,8 +67,13 @@ Where:
 | `omlxc fabric triage "<prompt>"` | Rich / JSON | Zero-latency AST complexity classification (`FAST` / `STANDARD` / `REASONING`) |
 | `omlxc fabric vram <model> <tokens>` | Rich / JSON | Pre-emptive KV Cache memory footprint, headroom admission & compaction advisory |
 | `omlxc fabric warm [--model <name>]` | Rich / JSON | Pre-warm high-frequency system prompt prefixes into cache registry (0ms TTFT) |
+| `omlxc fabric compact` | Rich / JSON | Invoke sliding-window / hierarchical context compaction advisory under VRAM pressure |
+| `omlxc fabric snapshot <list\|create\|warm>` | Rich / JSON | Manage binary KV Cache snapshots and zero-overhead pre-warming states (ADR-0197) |
+| `omlxc fabric speculative-eval <prompt>` | Rich / JSON | Evaluate local-first speculative execution vs cloud frontier cascading (ADR-0197) |
+| `omlxc fabric dma` | Rich / JSON | Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0439) |
+| `omlxc fabric replay [--domain]` | Rich / JSON | Experience replay buffer capacity, reservoir samples, and anti-forgetting state |
 | `omlxc routes plan <model>` | Rich / JSON | Explain exact multi-factor scoring formula for any model request |
-| `omlxc doctor` | Rich / CLI | Verify database, launchd daemon, config, and node socket reachability |
+| `omlxc doctor [--direct]` | Rich / JSON | Verify database, launchd daemon, config, node sockets; `--direct` probes backends live |
 
 ---
 

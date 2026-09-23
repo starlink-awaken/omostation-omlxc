@@ -15,7 +15,7 @@ def test_cli_fabric_inspect_json() -> None:
     result = runner.invoke(app, ["fabric", "inspect", "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == "1"
+    assert payload["schema_version"] == 1
     assert "thermal_pressure" in payload["data"]
     assert "known_arch_profiles" in payload["data"]
     assert "coding" in payload["data"]["known_arch_profiles"]

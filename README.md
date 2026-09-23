@@ -180,10 +180,9 @@ cutover time to say why. `bin/omlx` now prints a one-line warning on every
 invocation when this drift is detected (see `_app_projection_health`), but the
 sync step itself still has to be run by hand — App model-directory ownership is
 human/App territory, `omlx`/`omlxc` warn only and never scan or rewrite it
-unprompted. Root-caused and documented 2026-08-15; see
-`.omo/_knowledge/audits/omlxc-model-discovery-current-state-2026-08-15.md` in
-the workspace root for the fuller inventory-drift investigation this sits next
-to.
+ unprompted. Root-caused and documented 2026-08-15; the fuller inventory-drift
+ investigation was archived under the workspace T6-17 doc-lifecycle convention
+ (search `.omo/_knowledge/` for `omlxc-model-discovery`).
 
 ## Development
 

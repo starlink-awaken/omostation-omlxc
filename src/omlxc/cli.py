@@ -208,7 +208,7 @@ def _run_tui(socket: Path | None) -> None:
 def _emit_success(data: dict[str, Any], *, request_id: str) -> None:
     typer.echo(
         json.dumps(
-            {"schema_version": "1", "request_id": request_id, "data": data},
+            {"schema_version": 1, "request_id": request_id, "data": data},
             ensure_ascii=False,
             separators=(",", ":"),
         )
@@ -236,7 +236,7 @@ def _fail_config(message: str, *, request_id: str, detail: str | None = None) ->
     typer.echo(
         json.dumps(
             {
-                "schema_version": "1",
+                "schema_version": 1,
                 "request_id": request_id,
                 "error": error.model_dump(mode="json"),
             },
@@ -335,10 +335,13 @@ def _execute(
         )
 
 
-def _unsupported(action: str, *, json_output: bool) -> Never:
+def _unsupported(action: str, *, json_output: bool, hint: str | None = None) -> Never:
+    message = f"unsupported: daemon API does not expose '{action}' yet"
+    if hint:
+        message = f"{message}; {hint}"
     _fail_local(
         "E100",
-        f"unsupported: daemon API does not expose '{action}' yet",
+        message,
         json_output=json_output,
     )
 
@@ -563,10 +566,11 @@ def guide() -> None:
 
 @nodes_app.command("list")
 def nodes_list(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
     after: Annotated[str | None, typer.Option("--after")] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 100,
 ) -> None:
+    """List configured compute nodes with health state."""
     _execute(
         lambda client: client.nodes(after=after, limit=limit),
         json_output=json_output,
@@ -577,8 +581,9 @@ def nodes_list(
 @nodes_app.command("show")
 def nodes_show(
     node_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Show one node's cached health, capabilities, and inventory."""
     _execute(
         lambda client: _selected_node(client, node_id),
         json_output=json_output,
@@ -589,8 +594,9 @@ def nodes_show(
 @nodes_app.command("probe")
 def nodes_probe(
     node_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Probe a node with a real inference request (side effect: sends a chat completion)."""
     _execute(
         lambda client: client.probe_node(node_id),
         json_output=json_output,
@@ -601,7 +607,7 @@ def nodes_probe(
 @nodes_app.command("diagnose")
 def nodes_diagnose(
     node_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Explain cached node availability without refreshing backend hardware."""
     _execute(
@@ -616,7 +622,7 @@ def nodes_reset_inventory_baseline(
     node_id: Annotated[str, typer.Argument()],
     backend_id: Annotated[str, typer.Argument()],
     yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Accept the currently-observed model count as the new inventory baseline
     for one backend, clearing its drop warning.
@@ -645,7 +651,7 @@ def nodes_reset_inventory_baseline(
 
 @models_app.command("list")
 def models_list(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
     after: Annotated[str | None, typer.Option("--after")] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 100,
 ) -> None:
@@ -659,7 +665,7 @@ def models_list(
 @models_app.command("show")
 def models_show(
     model_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _execute(
         lambda client: _selected_model(client, model_id),
@@ -689,7 +695,7 @@ def _model_mutation(model_id: str, *, load: bool, yes: bool, json_output: bool) 
 def models_load(
     model_id: Annotated[str, typer.Argument()],
     yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _model_mutation(model_id, load=True, yes=yes, json_output=json_output)
 
@@ -698,24 +704,29 @@ def models_load(
 def models_unload(
     model_id: Annotated[str, typer.Argument()],
     yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _model_mutation(model_id, load=False, yes=yes, json_output=json_output)
 
 
 @models_app.command("reconcile")
 def models_reconcile(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Reconcile placements against live backend inventory (not implemented; daemon ReconcileRuntime runs every 300s)."""
     _require_r1("reconcile models", yes=yes, json_output=json_output)
-    _unsupported("models reconcile", json_output=json_output)
+    _unsupported(
+        "models reconcile",
+        json_output=json_output,
+        hint="daemon ReconcileRuntime auto-runs every 300s; run `omlxc doctor --direct` to inspect placement drift",
+    )
 
 
 @models_app.command("sync-parameters")
 def models_sync_parameters(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Push each model's declared config.toml parameters (temp/top_p/kv_bits)
     to the oMLX App backend(s) it is actually placed on.
@@ -762,9 +773,14 @@ def models_sync_parameters(
 
 @routes_app.command("show")
 def routes_show(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
-    _unsupported("routes show", json_output=json_output)
+    """List current route table (not implemented; use routes plan <model>)."""
+    _unsupported(
+        "routes show",
+        json_output=json_output,
+        hint="use `omlxc routes plan <model_id>` to explain a placement decision",
+    )
 
 
 @routes_app.command("plan")
@@ -778,7 +794,7 @@ def routes_plan(
         bool,
         typer.Option("--explain", help="Show scoring breakdown and rejections."),
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     del explain
     capabilities = cast(list[JsonValue], list(capability or ()))
@@ -800,7 +816,7 @@ def routes_plan(
 @routes_app.command("test")
 def routes_test(
     model_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _execute(
         lambda client: client.test_route(model_id),
@@ -814,8 +830,8 @@ def routes_test(
 def routes_pin(
     model_id: Annotated[str, typer.Argument()],
     placement_id: Annotated[str, typer.Argument()],
-    yes: Annotated[bool, typer.Option("--yes")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     del model_id, placement_id
     _require_r1("pin route", yes=yes, json_output=json_output)
@@ -827,8 +843,9 @@ def benchmark_run(
     model_id: Annotated[str | None, typer.Argument()] = None,
     all_models: Annotated[bool, typer.Option("--all")] = False,
     quick: Annotated[bool, typer.Option("--quick")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Run a latency/throughput benchmark against a local model."""
     target_model = model_id or "coding"
     del all_models, quick
     _execute(
@@ -843,8 +860,9 @@ def benchmark_run(
 def benchmark_report(
     model_id: Annotated[str | None, typer.Option("--model")] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 20,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Show recent benchmark runs (cold/warm latency, TTFT, tokens/sec)."""
     _execute(
         lambda client: client.benchmark_report(model_id=model_id, limit=limit),
         json_output=json_output,
@@ -855,7 +873,7 @@ def benchmark_report(
 
 @jobs_app.command("list")
 def jobs_list(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
     after: Annotated[str | None, typer.Option("--after")] = None,
     limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 100,
 ) -> None:
@@ -869,7 +887,7 @@ def jobs_list(
 @jobs_app.command("show")
 def jobs_show(
     job_id: Annotated[str, typer.Argument()],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _execute(lambda client: client.job(job_id), json_output=json_output, renderer=_render_job)
 
@@ -877,8 +895,8 @@ def jobs_show(
 @jobs_app.command("cancel")
 def jobs_cancel(
     job_id: Annotated[str, typer.Argument()],
-    yes: Annotated[bool, typer.Option("--yes")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _require_r1(f"cancel job {job_id}", yes=yes, json_output=json_output)
     _execute(
@@ -919,16 +937,16 @@ def jobs_watch(
     try:
         asyncio.run(watch())
     except DaemonClientError as exc:
-        _emit_client_failure(exc, json_output=True)
+        _emit_client_failure(exc, json_output=(output != "text"))
     except typer.Exit:
         raise
     except Exception:
-        _fail_local("E900", "event stream failed", json_output=True)
+        _fail_local("E900", "event stream failed", json_output=(output != "text"))
 
 
 @metrics_app.command("show")
 def metrics_show(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _execute(lambda client: client.metrics(), json_output=json_output, renderer=_render_mapping)
 
@@ -944,7 +962,7 @@ def config_validate(
         Path | None,
         typer.Option("--path", help="TOML file to validate."),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Validate config schema v1 without contacting a daemon or backend."""
     request_id = _request_id()
@@ -1006,16 +1024,16 @@ def config_migrate(
 
 @config_app.command("diff")
 def config_diff(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _unsupported("config diff", json_output=json_output)
 
 
 @config_app.command("apply")
 def config_apply(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _require_r2(
         "apply persistent configuration",
@@ -1028,9 +1046,9 @@ def config_apply(
 
 @config_app.command("rollback")
 def config_rollback(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _require_r2(
         "rollback persistent configuration",
@@ -1043,7 +1061,7 @@ def config_rollback(
 
 @daemon_app.command("status")
 def daemon_status(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     try:
         asyncio.run(_launchd_controller().status())
@@ -1062,9 +1080,9 @@ def daemon_install(
     home: Annotated[Path | None, typer.Option("--home", file_okay=False)] = None,
     config: Annotated[Path | None, typer.Option("--config", dir_okay=False)] = None,
     apply: Annotated[bool, typer.Option("--apply")] = False,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     selected_config = (config or default_config_path()).expanduser()
     try:
@@ -1113,9 +1131,9 @@ def daemon_install(
 
 @daemon_app.command("uninstall")
 def daemon_uninstall(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _require_r2(
         "uninstall daemon",
@@ -1164,34 +1182,34 @@ def _daemon_action(action: str, *, yes: bool, confirm_impact: bool, json_output:
 
 @daemon_app.command("start")
 def daemon_start(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _daemon_action("start", yes=yes, confirm_impact=confirm_impact, json_output=json_output)
 
 
 @daemon_app.command("stop")
 def daemon_stop(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _daemon_action("stop", yes=yes, confirm_impact=confirm_impact, json_output=json_output)
 
 
 @daemon_app.command("restart")
 def daemon_restart(
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     confirm_impact: Annotated[bool, typer.Option("--confirm-impact")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     _daemon_action("restart", yes=yes, confirm_impact=confirm_impact, json_output=json_output)
 
 
 @daemon_app.command("reload")
 def daemon_reload(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Reload daemon configuration in-place without dropping existing connections."""
     _execute(
@@ -1205,8 +1223,9 @@ def daemon_reload(
 @app.command("doctor")
 def doctor(
     direct: Annotated[bool, typer.Option("--direct")] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Run health checks against the daemon, or with --direct probe backends live."""
     if not direct:
         _execute(
             lambda client: client.health(),
@@ -1247,13 +1266,6 @@ def doctor(
 
         _console.print(table)
         _console.print(f"\n[bold]{passed} passed, {failed} failed[/bold]")
-
-
-@app.command("benchmark")
-def benchmark(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
-) -> None:
-    _unsupported("benchmark", json_output=json_output)
 
 
 def _mapping(data: JsonValue | None) -> dict[str, JsonValue]:
@@ -1627,7 +1639,7 @@ def _render_status(data: JsonValue | None) -> str:
 
 @fabric_app.command("inspect")
 def fabric_inspect(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Inspect Compute Fabric thermal status, triage capability, and memory estimators."""
     guard = ThermalGuard()
@@ -1682,7 +1694,7 @@ def fabric_inspect(
 @fabric_app.command("triage")
 def fabric_triage(
     prompt: Annotated[str, typer.Argument(help="Prompt text to classify")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Classify prompt complexity tier (FAST / STANDARD / REASONING)."""
     classifier = TriageClassifier()
@@ -1726,7 +1738,7 @@ def fabric_triage(
 def fabric_vram(
     model_id: Annotated[str, typer.Argument(help="Model identifier")],
     tokens: Annotated[int, typer.Argument(help="Context tokens count")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Estimate dynamic KV Cache and total VRAM footprint for a given context length."""
     estimator = VRAMBudgetEstimator()
@@ -1766,7 +1778,7 @@ def fabric_vram(
 @fabric_app.command("warm")
 def fabric_warm(
     model_id: Annotated[str, typer.Option("--model", "-m", help="Target model identifier")] = "coding",
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Pre-warm high-frequency system prompt prefixes into cache registry to achieve 0ms TTFT."""
     from omlxc.dataplane.semantic_cache import SemanticCacheRegistry, warm_system_prefixes
@@ -1798,7 +1810,7 @@ def fabric_compact(
     model_id: Annotated[str, typer.Option("--model", "-m", help="Target model identifier")] = "coding",
     context_tokens: Annotated[int, typer.Option("--tokens", "-t", help="Current context token size")] = 32768,
     available_mb: Annotated[float, typer.Option("--available-mb", "-a", help="Available node VRAM in MB")] = 8192.0,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Evaluate context compaction and simulate sliding-window memory self-healing."""
     from omlxc.dataplane.vram_budget import ContextCompactor, VRAMBudgetEstimator
@@ -1876,7 +1888,7 @@ def fabric_snapshot(
     action: Annotated[str, typer.Argument(help="Action: list | create | warm")] = "list",
     model: Annotated[str, typer.Option("--model", "-m", help="Target model ID")] = "qwen2.5-coder:14b",
     name: Annotated[str | None, typer.Option("--name", "-n", help="Snapshot identifier")] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Manage binary KV Cache snapshots and zero-overhead pre-warming states (ADR-0197)."""
     from omlxc.dataplane.kv_snapshot import KVCacheSnapshotStore
@@ -1932,12 +1944,18 @@ def fabric_snapshot(
             _console.print(f"[bold red]✖ Failed to warm snapshot:[/bold red] {snap_id}")
         return
 
+    _fail_local(
+        "E100",
+        f"unknown snapshot action: {action!r} (expected list | create | warm)",
+        json_output=json_output,
+    )
+
 
 @fabric_app.command("speculative-eval")
 def fabric_speculative_eval(
     prompt: Annotated[str, typer.Argument(help="Task prompt or query to evaluate")],
     domain: Annotated[str, typer.Option("--domain", "-d", help="Domain context")] = "general",
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Evaluate local-first speculative execution vs cloud frontier cascading (ADR-0197)."""
     from omlxc.dataplane.speculative import SpeculativeRouter
@@ -1970,22 +1988,23 @@ def fabric_speculative_eval(
 
 @fabric_app.command("dma")
 def fabric_dma(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Inspect Thunderbolt 5 DMA physical link status, latency, and telemetry (ADR-0439)."""
-    from omlxc.daemon.dma_daemon import STATE_FILE_REL
+    # Check telemetry file first for live daemon metrics.
+    # Resolve workspace from package location (not cwd) so results are stable.
+    from omlxc.daemon.dma_daemon import STATE_FILE_REL, detect_workspace_root
     from omlxc.dataplane.thunderbolt_dma import ThunderboltDMABus
 
-    # Check telemetry file first for live daemon metrics
-    ws = Path.cwd()
+    ws = detect_workspace_root()
     state_path = ws / STATE_FILE_REL
-    if not state_path.exists() and (ws.parent / STATE_FILE_REL).exists():
-        state_path = ws.parent / STATE_FILE_REL
 
-    telemetry = None
+    telemetry: dict[str, Any] | None = None
     if state_path.exists():
         try:
-            telemetry = json.loads(state_path.read_text(encoding="utf-8"))
+            loaded: Any = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                telemetry = cast(dict[str, Any], loaded)
         except Exception:
             telemetry = None
 
@@ -2029,13 +2048,13 @@ def fabric_dma(
 @fabric_app.command("replay")
 def fabric_replay(
     domain: Annotated[str, typer.Option("--domain", "-d", help="Domain filter")] = "all",
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
     """Inspect experience replay buffer capacity, reservoir samples, and anti-forgetting state."""
     from omlxc.dataplane.experience_replay import ExperienceReplayManager
 
-    ws = Path.cwd()
-    mgr = ExperienceReplayManager(workspace_root=ws)
+    # workspace_root=None → manager 自身 _detect_ws()，避免 cwd 依赖
+    mgr = ExperienceReplayManager()
     stats = mgr.stats()
 
     payload = {

@@ -19,6 +19,7 @@ from omlxc.domain import (
     RouteDecision,
     RouteRequest,
 )
+from omlxc.storage import BenchmarkRunRecord
 
 
 class FakeControlService:
@@ -50,6 +51,24 @@ class FakeControlService:
         self.route_requests: list[RouteRequest] = []
         self.probe_calls: list[str] = []
         self.diagnostic_calls: list[str] = []
+
+    async def list_benchmarks(self, *, model_id: str | None = None, limit: int = 50) -> tuple[Any, ...]:
+        del model_id, limit
+        # Dataclass with datetime — exercises _json dataclass/datetime branch.
+        return (
+            BenchmarkRunRecord(
+                run_id="bench-1",
+                model_id="coding",
+                placement_id="coding-local",
+                node_id="mbp",
+                cold_load_ms=120.0,
+                warm_load_ms=35.0,
+                ttft_ms=28.5,
+                tps=45.2,
+                vram_used_mb=None,
+                tested_at=datetime(2026, 9, 12, 23, 53, 2, tzinfo=UTC),
+            ),
+        )
 
     async def health(self) -> dict[str, Any]:
         return {"status": "ready", "degraded": False}
@@ -142,6 +161,23 @@ async def test_health_envelope_and_valid_client_request_id(
         "request_id": "client.req-1",
         "data": {"status": "ready", "degraded": False},
     }
+
+
+@pytest.mark.asyncio
+async def test_benchmarks_endpoint_serializes_dataclass_records(
+    transport: httpx.ASGITransport,
+) -> None:
+    """Regression: BenchmarkRunRecord is a dataclass with datetime — must not 500."""
+    async with httpx.AsyncClient(transport=transport, base_url="http://omlxc") as client:
+        response = await client.get("/api/v1/benchmarks", params={"limit": 5})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 1
+    items = payload["data"]
+    assert isinstance(items, list) and items
+    assert items[0]["run_id"] == "bench-1"
+    assert items[0]["tested_at"] == "2026-09-12T23:53:02+00:00"
 
 
 @pytest.mark.asyncio

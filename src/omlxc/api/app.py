@@ -4,9 +4,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from dataclasses import is_dataclass
+from datetime import datetime
 from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
@@ -868,12 +871,16 @@ def _json(value: object) -> object:
     dump = getattr(value, "model_dump", None)
     if callable(dump):
         return dump(mode="json")
+    if is_dataclass(value) and not isinstance(value, type):
+        return _json(dataclasses.asdict(value))
     if isinstance(value, Mapping):
         mapping = cast(Mapping[object, object], value)
         return {str(key): _json(item) for key, item in mapping.items()}
     if isinstance(value, (list, tuple)):
         sequence = cast(Sequence[object], value)
         return [_json(item) for item in sequence]
+    if isinstance(value, datetime):
+        return value.isoformat()
     return value
 
 
