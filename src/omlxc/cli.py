@@ -335,10 +335,13 @@ def _execute(
         )
 
 
-def _unsupported(action: str, *, json_output: bool) -> Never:
+def _unsupported(action: str, *, json_output: bool, hint: str | None = None) -> Never:
+    message = f"unsupported: daemon API does not expose '{action}' yet"
+    if hint:
+        message = f"{message}; {hint}"
     _fail_local(
         "E100",
-        f"unsupported: daemon API does not expose '{action}' yet",
+        message,
         json_output=json_output,
     )
 
@@ -711,8 +714,13 @@ def models_reconcile(
     yes: Annotated[bool, typer.Option("--yes", help="Confirm the R1 mutation.")] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
+    """Reconcile placements against live backend inventory (not implemented; daemon ReconcileRuntime runs every 300s)."""
     _require_r1("reconcile models", yes=yes, json_output=json_output)
-    _unsupported("models reconcile", json_output=json_output)
+    _unsupported(
+        "models reconcile",
+        json_output=json_output,
+        hint="daemon ReconcileRuntime auto-runs every 300s; run `omlxc doctor --direct` to inspect placement drift",
+    )
 
 
 @models_app.command("sync-parameters")
@@ -767,7 +775,12 @@ def models_sync_parameters(
 def routes_show(
     json_output: Annotated[bool, typer.Option("--json", help="Emit versioned JSON.")] = False,
 ) -> None:
-    _unsupported("routes show", json_output=json_output)
+    """List current route table (not implemented; use routes plan <model>)."""
+    _unsupported(
+        "routes show",
+        json_output=json_output,
+        hint="use `omlxc routes plan <model_id>` to explain a placement decision",
+    )
 
 
 @routes_app.command("plan")
