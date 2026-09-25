@@ -228,16 +228,26 @@ class OmlxAppAdapter:
         return no visible content, so retry those responses with the larger
         historical budget without making every probe pay that latency.
         """
-        request = dict(
-            request_id="omlx-readiness-probe",
-            model=model_id,
-            messages=(ChatMessage(role="user", content="Reply O only"),),
-            temperature=0.0,
+        probe = await self.chat(
+            ChatRequest(
+                request_id="omlx-readiness-probe",
+                model=model_id,
+                messages=(ChatMessage(role="user", content="Reply O only"),),
+                temperature=0.0,
+                max_tokens=1,
+            )
         )
-        probe = await self.chat(ChatRequest(max_tokens=1, **request))
         if probe.success and probe.content:
             return probe
-        return await self.chat(ChatRequest(max_tokens=100, **request))
+        return await self.chat(
+            ChatRequest(
+                request_id="omlx-readiness-probe",
+                model=model_id,
+                messages=(ChatMessage(role="user", content="Reply O only"),),
+                temperature=0.0,
+                max_tokens=100,
+            )
+        )
 
     async def discover(self) -> CapabilitySnapshot:
 
