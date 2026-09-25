@@ -500,3 +500,32 @@ async def test_load_memory_denied_never_calls_adapter_and_job_fails(short_root: 
 
     assert current.json()["data"]["state"] == "failed"
     assert backend.load_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_successful_probe_revives_stale_placement(short_root: Path) -> None:
+    config = _config(short_root).model_copy(
+        update={"daemon": DaemonConfig(socket_path=short_root / "daemon.sock", probe_interval_seconds=0.01)}
+    )
+    backend = ColdBackend(state=ModelRuntimeState.LOADED, reachable=False)
+    composition = build_production_daemon(config, adapters={"backend": cast(BackendAdapter, backend)})
+    server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
+    await server.start()
+    try:
+        async with await _uds_client(config.daemon.socket_path) as client:
+            backend.reachable = True
+            deadline = asyncio.get_running_loop().time() + 1.0
+            state: dict[str, object] | None = None
+            while asyncio.get_running_loop().time() < deadline:
+                models = await client.get("/api/v1/models")
+                state = models.json()["data"]["items"][0]["placement_states"][0]
+                if state["available"] is True and state["ready"] is True:
+                    break
+                await asyncio.sleep(0.01)
+    finally:
+        await server.stop()
+
+    assert state is not None
+    assert state["available"] is True
+    assert state["ready"] is True
+    assert composition.runtime.task_settled
