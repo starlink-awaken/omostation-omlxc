@@ -21,8 +21,8 @@ import json
 import os
 import subprocess
 import sys
-from urllib.parse import quote
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
