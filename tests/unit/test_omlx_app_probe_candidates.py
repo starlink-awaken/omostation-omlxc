@@ -10,6 +10,8 @@ not-ready) for every other model almost all the time.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -96,3 +98,29 @@ async def test_single_string_probe_model_id_still_supported() -> None:
     snapshot = await adapter.discover()  # type: ignore[attr-defined]
 
     assert snapshot.generation_ready is True
+
+
+@pytest.mark.asyncio
+async def test_retries_with_reasoning_budget_after_empty_minimal_probe() -> None:
+    routes = _status_and_models("reasoning")
+    probe_tokens: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/chat/completions":
+            payload = json.loads(request.content)
+            probe_tokens.append(payload["max_tokens"])
+            content = "O" if payload["max_tokens"] == 100 else ""
+            return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        return routes[request.url.path]
+
+    adapter = OmlxAppAdapter(
+        backend_id="mbp-omlx",
+        base_url="http://omlx.invalid",
+        probe_model_id="reasoning",
+        transport=httpx.MockTransport(handler),
+    )
+
+    snapshot = await adapter.discover()  # type: ignore[attr-defined]
+
+    assert snapshot.generation_ready is True
+    assert probe_tokens == [1, 100]

@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -116,6 +117,27 @@ def is_warm(model_id: str, role: str, base_url: str = BASE_URL) -> bool:
     # 时短探测秒回, 未加载时 JIT 冷启动撑不进 3s 窗口。
     return _probe(model_id, role, timeout=3.0, base_url=base_url) == 200
 
+def _load_omlx_model(model_id: str, base_url: str = BASE_URL) -> int | None:
+    """Explicitly ask oMLX to load a cold model after a 404 chat probe.
+
+    A cold oMLX model can remain in the catalog while chat returns 404; a
+    second chat request does not reliably trigger loading. Use the supported
+    lifecycle endpoint, then let the caller probe again to confirm readiness.
+    """
+    try:
+        response = httpx.post(
+            f"{base_url}/v1/models/{quote(model_id, safe='')}/load",
+            json={},
+            timeout=180.0,
+        )
+        return response.status_code
+    except httpx.TimeoutException:
+        return None
+    except Exception:
+        return None
+
+
+
 
 def lm_loaded(model_id: str) -> bool:
     """LM Studio 侧已加载判断: lms ps 只列已加载模型, 命中 identifier/modelKey
@@ -198,7 +220,13 @@ def main() -> int:
             continue
 
         status = _probe(model_id, role, timeout=90.0, base_url=base_url)
-        print(f"{'WARMED' if status == 200 else 'FAIL'}: {model_id} status={status}")
+        load_status = None
+        if status == 404 and base_url == BASE_URL and role != "embedding":
+            load_status = _load_omlx_model(model_id, base_url)
+            if load_status in {200, 202}:
+                status = _probe(model_id, role, timeout=90.0, base_url=base_url)
+        suffix = f" load_status={load_status}" if load_status is not None else ""
+        print(f"{'WARMED' if status == 200 else 'FAIL'}: {model_id} status={status}{suffix}")
 
     return 0
 

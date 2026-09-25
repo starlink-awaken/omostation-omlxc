@@ -220,7 +220,37 @@ class OmlxAppAdapter:
             endpoint=endpoint,
         )
 
+    async def _readiness_probe(self, model_id: str) -> ChatResult:
+        """Probe cheaply first, then allow reasoning models more output budget.
+
+        Most oMLX models answer the one-token probe immediately. Reasoning
+        models may spend that budget entirely inside hidden reasoning and
+        return no visible content, so retry those responses with the larger
+        historical budget without making every probe pay that latency.
+        """
+        probe = await self.chat(
+            ChatRequest(
+                request_id="omlx-readiness-probe",
+                model=model_id,
+                messages=(ChatMessage(role="user", content="Reply O only"),),
+                temperature=0.0,
+                max_tokens=1,
+            )
+        )
+        if probe.success and probe.content:
+            return probe
+        return await self.chat(
+            ChatRequest(
+                request_id="omlx-readiness-probe",
+                model=model_id,
+                messages=(ChatMessage(role="user", content="Reply O only"),),
+                temperature=0.0,
+                max_tokens=100,
+            )
+        )
+
     async def discover(self) -> CapabilitySnapshot:
+
         observed_at = self._clock()
         errors: list[AdapterError] = []
         try:
@@ -281,19 +311,7 @@ class OmlxAppAdapter:
         if compatible and probe_id is not None:
             try:
                 async with asyncio.timeout(_PROBE_CHAT_TIMEOUT):
-                    probe = await self.chat(
-                        ChatRequest(
-                            request_id="omlx-readiness-probe",
-                            model=probe_id,
-                            messages=(ChatMessage(role="user", content="Reply O only"),),
-                            # 100 而非 1: 输出 reasoning_content 的模型(如
-                            # placed 在同一 backend 上的 GLM-4.7-Flash)会先
-                            # 消耗思维链 token, max_tokens=1 时永远拿不到可见
-                            # 内容, 与 ollama.py 同一根因同一修复(2026-09-13)。
-                            max_tokens=100,
-                            temperature=0.0,
-                        )
-                    )
+                    probe = await self._readiness_probe(probe_id)
             except TimeoutError:
                 probe = None
             if probe is not None:
