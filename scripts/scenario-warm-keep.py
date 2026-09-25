@@ -55,7 +55,13 @@ WARM_TARGETS = [
     # ~10s、上下文窗口比另外两个都大(131072), 已同步改为 claude_code/
     # integrations 全部工具集成的默认模型别名(~/.omlx/settings.json)。
     # 之前两个模型同时常驻占约 48GB, 现在一个模型 17.2GB, 省了 30GB+。
-    ("coding-next", "唯一常驻编码/聊天模型(2026-09-17 收敛, 取代 coding+qwen-3.8-27b)", 17.2, "chat", BASE_URL),
+    # 2026-09-25 撤下 coding-next: 上面 "17.2GB Qwen3-Coder-30B" 的描述已过时 ——
+    # app-models/coding-next 实际是 Qwen3-Coder-Next(80B-A3B, 4bit, ~45GB)。编码/对话
+    # 主力已迁到 LM Studio Splash(aetherforge 别名 opus/sonnet/coder, ~300 tok/s);
+    # coding-next 降为按需兜底(oMLX ttl 300s)。每 5 分钟保温把它拉回常驻, 实测它
+    # 在场时同 oMLX 的 mythos-fast 从 ~1s 退化到 5-22s, omlxc 就绪探活(5s)随之超时,
+    # 一票否决整个 omlx-app 后端 placement → 网关 409 insufficient_capacity。
+    # oMLX 侧常驻集由 oMLX 自身 pin(embedding + mythos-fast)维持, 无需保温。
     # 2026-08-24 职责转移: mythos 的 LM 兜底已由 mac-mini 常驻(4.78GB 量化版,
     # remote-resident-maintain 维护)接管, oMLX 侧 mythos 为主路径 —— MBP 的
     # bf16(18.84GB)纯冗余且是 swap 压力大头, 移出保活并手动卸载。若 mac-mini
