@@ -102,9 +102,11 @@ if ! check_http "http://127.0.0.1:11434/api/tags"; then
 fi
 
 # --- omlxc daemon ---
+# 2026-09-26: 去掉自动重启。launchd KeepAlive 已负责保活, watchdog 重启会与
+# launchd 竞争(双写状态/日志), 且 daemon restart 会触发全量重新发现导致短暂抖动。
+# 只告警不自愈。
 if ! "$OMLXC" daemon status --json 2>/dev/null | grep -q '"running"'; then
-  log "[WARN] omlxc daemon 未运行，尝试重启"
-  "$OMLXC" daemon restart --yes --confirm-impact >>"$LOG" 2>&1
+  log "[WARN] omlxc daemon 未运行 (launchd KeepAlive 应已保活, 若持续告警请检查 launchctl)"
 fi
 
 # --- remote 节点在线告警 (2026-08-24: mac-mini/y7000p 物理离线 23h/1d 无任何
