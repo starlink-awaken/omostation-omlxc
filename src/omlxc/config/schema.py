@@ -179,6 +179,9 @@ class BackendConfig(ConfigModel):
     known_hosts_file: Path | None = None
     lms_platform: Literal["macos", "windows"] = "macos"
     probe_timeout_seconds: float = Field(default=10.0, gt=0)
+    # "state": 可用性只看原生状态接口, 生成健康交给真实流量熔断器(默认);
+    # "generation": 旧行为, 周期性发真实推理探活(会钉住模型, 思考型模型易误判)。
+    readiness_probe: Literal["state", "generation"] = "state"
 
     @field_validator("kind", mode="before")
     @classmethod

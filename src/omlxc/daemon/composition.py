@@ -1506,12 +1506,14 @@ def build_configured_adapter(
             backend_id=backend.id,
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
+            generation_probe=backend.readiness_probe == "generation",
         )
     elif backend.kind is BackendKind.OLLAMA:
         adapter = OllamaAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
+            generation_probe=backend.readiness_probe == "generation",
         )
     else:
         control_authorizer = (
@@ -1523,6 +1525,7 @@ def build_configured_adapter(
             backend_id=backend.id,
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
+            generation_probe=backend.readiness_probe == "generation",
             ssh_target=backend.control_endpoint,
             known_hosts_file=backend.known_hosts_file,
             platform=LmsPlatform(backend.lms_platform),
