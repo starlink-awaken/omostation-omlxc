@@ -124,6 +124,7 @@ class OllamaAdapter:
         backend_id: str,
         base_url: str = "http://127.0.0.1:11434",
         probe_model_id: str | Iterable[str] | None = None,
+        generation_probe: bool = True,
         keep_alive_seconds: int = DEFAULT_KEEP_ALIVE_SECONDS,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -183,6 +184,7 @@ class OllamaAdapter:
         if max_total_image_bytes < max_image_bytes:
             raise ValueError("total image limit must cover one image")
         self._backend_id = backend_id
+        self._generation_probe = generation_probe
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
         self._probe_model_ids = probe_model_ids
         self._keep_alive_seconds = keep_alive_seconds
@@ -346,7 +348,13 @@ class OllamaAdapter:
             probe_id = next((model.id for model in models if model.loaded is True), None)
         loaded_ids = {model.id for model in models if model.loaded is True}
         generation_ready = False
-        if compatible and probe_id is not None and probe_id in loaded_ids:
+        if not self._generation_probe:
+            # readiness_probe="state"(配置默认): 可用性只看运行时原生状态接口(LM Studio
+            # /api/v1/models、Ollama /api/ps、oMLX /v1/models/status), 能否生成交给真实流量的
+            # placement 熔断器判定。合成推理探活会: 刷新 TTL 钉住模型; 思考型模型(Splash)在
+            # token 预算内正文为空被误判; 模型忙时排队超时被误判 —— 并把后端上所有已加载模型一起判死。
+            generation_ready = compatible
+        elif compatible and probe_id is not None and probe_id in loaded_ids:
             try:
                 async with asyncio.timeout(_PROBE_CHAT_TIMEOUT):
                     probe = await self.chat(

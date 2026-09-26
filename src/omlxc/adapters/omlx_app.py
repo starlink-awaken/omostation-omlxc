@@ -93,6 +93,7 @@ class OmlxAppAdapter:
         backend_id: str,
         base_url: str = "http://127.0.0.1:8000",
         probe_model_id: str | Iterable[str] | None = None,
+        generation_probe: bool = True,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -107,6 +108,7 @@ class OmlxAppAdapter:
         if client is not None and transport is not None:
             raise ValueError("client and transport are mutually exclusive")
         self._backend_id = backend_id
+        self._generation_probe = generation_probe
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
         # A backend that can only hold one model at a time (this one) rotates which
         # model is actually loaded; a single fixed probe id is loaded only by
@@ -308,7 +310,13 @@ class OmlxAppAdapter:
             probe_id = next((model.id for model in models if model.loaded and model.id in self._probe_model_ids), None)
         else:
             probe_id = next((model.id for model in models if model.loaded), None)
-        if compatible and probe_id is not None:
+        if not self._generation_probe:
+            # readiness_probe="state"(配置默认): 可用性只看运行时原生状态接口(LM Studio
+            # /api/v1/models、Ollama /api/ps、oMLX /v1/models/status), 能否生成交给真实流量的
+            # placement 熔断器判定。合成推理探活会: 刷新 TTL 钉住模型; 思考型模型(Splash)在
+            # token 预算内正文为空被误判; 模型忙时排队超时被误判 —— 并把后端上所有已加载模型一起判死。
+            generation_ready = compatible
+        elif compatible and probe_id is not None:
             try:
                 async with asyncio.timeout(_PROBE_CHAT_TIMEOUT):
                     probe = await self._readiness_probe(probe_id)

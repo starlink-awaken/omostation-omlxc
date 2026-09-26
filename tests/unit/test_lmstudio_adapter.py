@@ -1642,3 +1642,29 @@ async def test_rest_state_failure_keeps_unknown(payload: object, status: int) ->
     models = await adapter.list_models()
 
     assert all(model.state is ModelRuntimeState.UNKNOWN for model in models)
+
+
+@pytest.mark.asyncio
+async def test_state_readiness_marks_loaded_backend_ready_without_chat() -> None:
+    """readiness_probe=state: no synthetic chat; loaded state comes from REST and the backend is ready."""
+    chat_calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "model-a"}]})
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": [{"key": "model-a", "loaded_instances": [{"id": "model-a"}]}]})
+        chat_calls.append(request.url.path)
+        return httpx.Response(200, json={"choices": [{"message": {"content": ""}}]})
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=httpx.MockTransport(handler),
+        generation_probe=False,
+    )
+
+    snapshot = await adapter.discover()
+
+    assert snapshot.generation_ready is True
+    assert chat_calls == []
