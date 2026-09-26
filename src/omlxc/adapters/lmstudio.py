@@ -429,15 +429,62 @@ class LmStudioAdapter:
             )
         return output
 
+    async def _probe_rest_state(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
+        """No SSH control channel: read load state from LM Studio's native REST API.
+
+        ``GET /api/v1/models`` lists every downloaded model with its ``loaded_instances``.
+        Without this, a local LM Studio backend (no ``control_endpoint``) reports every
+        model as UNKNOWN, and the planner rejects all of its placements as unavailable,
+        including JIT-loadable ones. Any failure keeps the old UNKNOWN behaviour.
+        """
+        unsupported = AdapterError(
+            code=AdapterErrorCode.UNSUPPORTED,
+            message="LM Studio control channel is not configured",
+        )
+        try:
+            response = await self._send("GET", "/api/v1/models")
+            if not response.is_success:
+                return None, unsupported
+            document = _mapping(cast(object, response.json()))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return None, unsupported
+        raw_models = _list(document.get("models")) if document is not None else None
+        if raw_models is None:
+            return None, unsupported
+        rows: list[_ControlRow] = []
+        for raw in raw_models:
+            item = _mapping(raw)
+            if item is None:
+                continue
+            key = item.get("key")
+            if not isinstance(key, str):
+                continue
+            for raw_instance in _list(item.get("loaded_instances")) or []:
+                instance = _mapping(raw_instance)
+                if instance is None:
+                    continue
+                identifier = instance.get("id")
+                if not isinstance(identifier, str):
+                    continue
+                config = _mapping(instance.get("config"))
+                context = config.get("context_length") if config is not None else None
+                ttl = instance.get("remaining_ttl_seconds")
+                rows.append(
+                    _ControlRow(
+                        model_id=key,
+                        identifier=identifier,
+                        context_length=context if isinstance(context, int) else None,
+                        parallel=None,
+                        ttl_seconds=ttl if isinstance(ttl, int) else None,
+                    )
+                )
+        return tuple(rows), None
+
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
         if self._ssh_target is None:
-            return (
-                None,
-                AdapterError(
-                    code=AdapterErrorCode.UNSUPPORTED,
-                    message="LM Studio control channel is not configured",
-                ),
-            )
+            return await self._probe_rest_state()
         try:
             output = await self._run_control(("ps", "--json"), timeout=15.0)
             parsed = cast(object, json.loads(output.stdout))
