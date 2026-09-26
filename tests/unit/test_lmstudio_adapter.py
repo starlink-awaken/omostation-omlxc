@@ -1595,3 +1595,50 @@ async def test_stream_http_error_and_invalid_utf8_are_typed() -> None:
     assert "credential-value" not in http_events[-1].model_dump_json()
     assert utf8_events[-1].error is not None
     assert utf8_events[-1].error.code is AdapterErrorCode.BAD_RESPONSE
+
+
+def _rest_state_transport(models_payload: object, *, status: int = 200) -> httpx.MockTransport:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "model-a"}, {"id": "model-b"}]})
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(status, json=models_payload)
+        raise AssertionError(request.url.path)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_without_ssh_control_uses_rest_loaded_instances() -> None:
+    payload: dict[str, object] = {
+        "models": [
+            {
+                "key": "model-a",
+                "loaded_instances": [
+                    {"id": "model-a", "config": {"context_length": 262144}, "remaining_ttl_seconds": 600}
+                ],
+            },
+            {"key": "model-b", "loaded_instances": []},
+        ]
+    }
+    adapter = LmStudioAdapter(
+        backend_id="lm", base_url="http://127.0.0.1:1234", transport=_rest_state_transport(payload)
+    )
+
+    models = {model.id: model for model in await adapter.list_models()}
+
+    assert models["model-a"].state is ModelRuntimeState.LOADED
+    assert models["model-a"].context_limit == 262144
+    assert models["model-b"].state is ModelRuntimeState.AVAILABLE  # JIT-loadable, not unknown
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("payload", "status"), [({"models": []}, 404), ({"unexpected": 1}, 200), ("nope", 200)])
+async def test_rest_state_failure_keeps_unknown(payload: object, status: int) -> None:
+    adapter = LmStudioAdapter(
+        backend_id="lm", base_url="http://127.0.0.1:1234", transport=_rest_state_transport(payload, status=status)
+    )
+
+    models = await adapter.list_models()
+
+    assert all(model.state is ModelRuntimeState.UNKNOWN for model in models)
