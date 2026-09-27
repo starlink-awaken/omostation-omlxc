@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -63,6 +64,8 @@ def command(
             )
         )
         return
+    # 未配置时 logging 走 lastResort: 只打 message, 无时间/级别 —— probe 超时/失败无法与请求时间线对齐
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     composition = build_production_daemon(loaded, config_path=selected_config)
     server = DaemonServer(composition.app, socket_path=loaded.daemon.socket_path)
     try:
