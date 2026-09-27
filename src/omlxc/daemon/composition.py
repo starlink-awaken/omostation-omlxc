@@ -386,12 +386,7 @@ class CatalogProbe:
             self._diagnostics[backend.id] = NodeDiagnosticCode.AUTHORIZATION_DENIED
             return
         try:
-            async with asyncio.timeout(backend_timeout):
-                adapter = self._adapters[backend.id]
-                capability = await adapter.discover()
-                if capability.backend_id != backend.id:
-                    raise ValueError("backend discovery identity mismatch")
-                models = await adapter.list_models()
+            capability, models = await self._discover_with_retry(backend, backend_timeout)
             self._apply(backend, capability, models, authorized=authorized, local=local)
             await self._observe_inventory(backend, capability, models)
         except asyncio.CancelledError:
@@ -404,6 +399,28 @@ class CatalogProbe:
             _logger.exception("backend probe failed: %s", backend.id)
             self._fail_stale(backend.id, authorized=authorized, local=local)
             self._diagnostics[backend.id] = NodeDiagnosticCode.PROBE_FAILED
+
+    async def _discover_with_retry(
+        self, backend: BackendConfig, backend_timeout: float
+    ) -> tuple[CapabilitySnapshot, tuple[ModelRuntime, ...]]:
+        """超时先重试一次再判 stale。2026-09-28 实测: 整机过载(load avg 90+, swap 16G)时
+        omlxcd 事件循环被饿 >10s, 同一秒内 oMLX/LM Studio/Ollama 三个本机后端一起超时 →
+        全部 placement stale → 请求 409。这是探测方自身被饿, 不是后端挂; 真挂的后端
+        重试仍会超时, 只多花一个预算。"""
+        adapter = self._adapters[backend.id]
+        for attempt in (1, 2):
+            try:
+                async with asyncio.timeout(backend_timeout):
+                    capability = await adapter.discover()
+                    if capability.backend_id != backend.id:
+                        raise ValueError("backend discovery identity mismatch")
+                    models = await adapter.list_models()
+                return capability, models
+            except TimeoutError:
+                if attempt == 2:
+                    raise
+                _logger.warning("backend probe timed out, retrying once: %s", backend.id)
+        raise AssertionError("unreachable")
 
     async def _authorize(self, backend: BackendConfig, authorization: asyncio.Task[None] | None) -> tuple[bool, bool]:
         if is_loopback_url(backend.base_url):

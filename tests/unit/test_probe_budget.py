@@ -130,3 +130,56 @@ def test_probe_budget_tracks_production_interval(tmp_path: Path) -> None:
     )
 
     assert probe._timeout >= 10.0
+
+
+class FlakyAdapter(SlowAdapter):
+    """前 hangs 次 discover 卡死(模拟 omlxcd 事件循环被饿导致的超时), 之后正常。"""
+
+    def __init__(self, hangs: int) -> None:
+        super().__init__(delay=0.0)
+        self.hangs = hangs
+        self.calls = 0
+
+    async def discover(self) -> CapabilitySnapshot:
+        self.calls += 1
+        if self.calls <= self.hangs:
+            await asyncio.sleep(3600)
+        return await super().discover()
+
+
+def _probe(tmp_path: Path, adapter: SlowAdapter) -> tuple[CatalogProbe, SnapshotCatalog]:
+    config = _config(tmp_path, interval=0.5)
+    catalog = SnapshotCatalog(_configured_snapshots(config), now=lambda: datetime.now(UTC))
+    probe = CatalogProbe(
+        config=config,
+        adapters={"lm-backend": adapter},
+        catalog=catalog,
+        tailscale=None,
+        now=lambda: datetime.now(UTC),
+    )
+    probe._timeout = 0.2
+    return probe, catalog
+
+
+def test_single_probe_timeout_is_retried_not_marked_stale(tmp_path: Path) -> None:
+    """一次超时(探测方自身被饿)不应把 placement 打成 stale: 立即重试一次。"""
+    adapter = FlakyAdapter(hangs=1)
+    probe, catalog = _probe(tmp_path, adapter)
+
+    asyncio.run(probe.refresh_backend("lm-backend"))
+
+    assert adapter.calls == 2
+    snapshot = catalog.get_one("p1")
+    assert snapshot.fresh is True and snapshot.available is True
+
+
+def test_persistent_probe_timeout_still_marks_stale(tmp_path: Path) -> None:
+    """后端真挂(连续超时): 重试后仍判 stale, 不掩盖故障。"""
+    adapter = FlakyAdapter(hangs=99)
+    probe, catalog = _probe(tmp_path, adapter)
+
+    asyncio.run(probe.refresh_backend("lm-backend"))
+
+    assert adapter.calls == 2
+    snapshot = catalog.get_one("p1")
+    assert snapshot.fresh is False and snapshot.available is False
