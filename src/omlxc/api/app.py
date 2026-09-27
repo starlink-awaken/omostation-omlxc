@@ -173,6 +173,10 @@ class OpenAIChatBody(ApiModel):
     profile: RouteProfile = RouteProfile.INTERACTIVE
     thinking: bool = False
     reasoning: bool = False
+    # 2026-09-27: OpenAI 标准字段 reasoning_effort(门面 no_think_param 与 cockpit 分诊都会带
+    # "none")此前缺失 → 422 E100 → 门面判 oMLX 不可用、兜底到别的档, 连续 422 还会打开
+    # ENG-OMLX-LOCAL 熔断器殃及 mythos-fast/embedding。omlxc 本就不开 thinking, 接受即可。
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
     timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
     tools: tuple[ChatTool, ...] = Field(default=(), max_length=MAX_CHAT_TOOLS)
     tool_choice: ToolChoice | None = None
