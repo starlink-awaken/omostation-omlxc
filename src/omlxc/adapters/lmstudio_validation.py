@@ -7,33 +7,33 @@ import re
 import stat
 from pathlib import Path
 
-_SAFE_TARGET_PART = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,252}[A-Za-z0-9])?$")
-_SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+@-]{0,511}$")
+SAFE_TARGET_PART = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,252}[A-Za-z0-9])?$")
+SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+@-]{0,511}$")
 
 
-def _validate_model_token(value: str, *, label: str = "model") -> None:
-    if not _SAFE_MODEL.fullmatch(value):
+def validate_model_token(value: str, *, label: str = "model") -> None:
+    if not SAFE_MODEL.fullmatch(value):
         raise ValueError(f"{label} is not a safe lms argument")
     if any(segment == ".." for segment in value.split("/")):
         raise ValueError(f"{label} must not contain path traversal")
 
 
-def _validate_target(value: str) -> None:
+def validate_target(value: str) -> None:
     if value.startswith("-") or value.count("@") > 1:
         raise ValueError("SSH target is invalid")
     user, separator, host = value.rpartition("@")
     if not separator:
         host = value
         user = ""
-    if not host or not _SAFE_TARGET_PART.fullmatch(host):
+    if not host or not SAFE_TARGET_PART.fullmatch(host):
         raise ValueError("SSH target is invalid")
     if ".." in host:
         raise ValueError("SSH target is invalid")
-    if user and not _SAFE_TARGET_PART.fullmatch(user):
+    if user and not SAFE_TARGET_PART.fullmatch(user):
         raise ValueError("SSH target is invalid")
 
 
-def _validate_known_hosts(path: Path) -> None:
+def validate_known_hosts(path: Path) -> None:
     if not path.is_absolute():
         raise ValueError("known_hosts file must use an absolute path")
     try:

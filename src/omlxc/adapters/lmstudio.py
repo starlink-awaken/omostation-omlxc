@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import re
-import stat
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -45,10 +42,9 @@ from omlxc.domain.protocols import (
 )
 
 from .lmstudio_validation import (
-    _SAFE_MODEL,
-    _validate_known_hosts,
-    _validate_model_token,
-    _validate_target,
+    validate_known_hosts,
+    validate_model_token,
+    validate_target,
 )
 from .process import BoundedProcessRunner as _DefaultProcessRunner
 from .process import (
@@ -93,7 +89,7 @@ class LmsLoadOptions(DomainModel):
     @classmethod
     def validate_identifier(cls, value: str | None) -> str | None:
         if value is not None:
-            _validate_model_token(value, label="identifier")
+            validate_model_token(value, label="identifier")
         return value
 
 
@@ -150,19 +146,19 @@ class LmStudioAdapter:
         if (ssh_target is None) != (known_hosts_file is None):
             raise ValueError("SSH target and known_hosts file must be configured together")
         if ssh_target is not None:
-            _validate_target(ssh_target)
+            validate_target(ssh_target)
             assert known_hosts_file is not None
-            _validate_known_hosts(known_hosts_file)
+            validate_known_hosts(known_hosts_file)
         probe_model_ids: frozenset[str] | None
         if probe_model_id is None:
             probe_model_ids = None
         elif isinstance(probe_model_id, str):
-            _validate_model_token(probe_model_id, label="probe model")
+            validate_model_token(probe_model_id, label="probe model")
             probe_model_ids = frozenset({probe_model_id})
         else:
             candidates = tuple(probe_model_id)
             for candidate in candidates:
-                _validate_model_token(candidate, label="probe model")
+                validate_model_token(candidate, label="probe model")
             probe_model_ids = frozenset(candidates) if candidates else None
 
         self._backend_id = backend_id
@@ -286,7 +282,7 @@ class LmStudioAdapter:
                 detail={},
             )
         try:
-            _validate_known_hosts(self._known_hosts_file)
+            validate_known_hosts(self._known_hosts_file)
         except ValueError as exc:
             raise AdapterFailure.from_detail(
                 code=AdapterErrorCode.INVALID_REQUEST,
@@ -504,8 +500,8 @@ class LmStudioAdapter:
                     ),
                 )
             try:
-                _validate_model_token(model_id)
-                _validate_model_token(identifier, label="identifier")
+                validate_model_token(model_id)
+                validate_model_token(identifier, label="identifier")
             except ValueError:
                 return (
                     None,
@@ -666,7 +662,7 @@ class LmStudioAdapter:
             if not isinstance(model_id, str):
                 continue
             try:
-                _validate_model_token(model_id)
+                validate_model_token(model_id)
             except ValueError:
                 continue
             if model_id not in http_ids:
@@ -754,7 +750,7 @@ class LmStudioAdapter:
         options: LmsLoadOptions,
     ) -> LifecycleResult:
         try:
-            _validate_model_token(model_id)
+            validate_model_token(model_id)
         except ValueError:
             return self._lifecycle_failure(
                 model_id,
@@ -862,7 +858,7 @@ class LmStudioAdapter:
             )
         model_id = request.model_id
         try:
-            _validate_model_token(model_id)
+            validate_model_token(model_id)
             (
                 models,
                 state_error,
