@@ -58,3 +58,14 @@ def testmlx_passthrough_fields_accepted() -> None:
     )
     assert body.kv_bits == 8
     assert body.thinking_budget == 0
+
+
+@pytest.mark.parametrize("effort", ["none", "minimal", "low", "medium", "high"])
+def test_reasoning_effort_accepted(effort: str) -> None:
+    # 2026-09-27: 门面 no_think_param 与 cockpit 分诊带 reasoning_effort="none" → 422 → 门面兜底且熔断 oMLX
+    assert OpenAIChatBody(**_minimal(), reasoning_effort=effort).reasoning_effort == effort
+
+
+def test_reasoning_effort_rejects_non_standard_value() -> None:
+    with pytest.raises(ValidationError):
+        OpenAIChatBody(**_minimal(), reasoning_effort="turbo")
