@@ -509,6 +509,11 @@ def _parse_peer(row: Mapping[object, object]) -> _Peer:
     raw_ips = values["TailscaleIPs"]
     online = values["Online"]
     os_name = values["OS"]
+    if isinstance(os_name, str) and not os_name:
+        # Empty OS strings (observed 2026-10-09 from a tailnet device) are
+        # informational gaps, not shape violations: degrade to "unknown" so one
+        # misreporting peer cannot veto authorization for every remote backend.
+        os_name = "unknown"
     if (
         not isinstance(peer_id, str)
         or not _PEER_ID.fullmatch(peer_id)
