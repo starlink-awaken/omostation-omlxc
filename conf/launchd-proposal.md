@@ -4,7 +4,7 @@
 
 ## 一个必须先解决的前提：外接盘依赖
 
-你的模型在外接盘 `/Volumes/Model`。如果登录时盘还没挂载、或平时拔插，服务会加载失败并被 launchd 反复重启刷日志。所以方案里都带一个**挂载守卫**：盘在才启动，盘不在就安静退出等下一次。
+控制面（bin/conf/run/logs）自 2026-08-10 起在内置盘 `~/omlx`（launchd/TCC 无法执行外接卷上的二进制）；模型权重自 2026-10-11（BET-Y2Q4-T10-242）在外接盘 `/Volumes/SHAREDMODEL/lmstudio`。如果登录时盘还没挂载、或平时拔插，服务会加载失败并被 launchd 反复重启刷日志。所以方案里都带一个**挂载守卫**：盘在才启动，盘不在就安静退出等下一次。
 
 ---
 
@@ -27,10 +27,10 @@
 # 盘挂了才启动指定服务，前台运行(交给 launchd 托管)
 SVC="${1:-coding}"
 export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
-if [ ! -d /Volumes/Model/omlx ]; then
-  echo "[omlx-guard] /Volumes/Model 未挂载，跳过 $SVC"; exit 0   # exit 0 → launchd 不视为崩溃
+if [ ! -d /Volumes/SHAREDMODEL/lmstudio ]; then
+  echo "[omlx-guard] /Volumes/SHAREDMODEL 未挂载，跳过 $SVC"; exit 0   # exit 0 → launchd 不视为崩溃
 fi
-exec omlx serve "$SVC" -f      # -f 前台，stdout/stderr 由 launchd 收集
+exec ~/omlx/bin/omlx serve "$SVC" -f      # -f 前台，stdout/stderr 由 launchd 收集
 ```
 
 ## 文件 2：LaunchAgent `~/Library/LaunchAgents/com.omlx.coding.plist`
@@ -41,7 +41,7 @@ exec omlx serve "$SVC" -f      # -f 前台，stdout/stderr 由 launchd 收集
 <plist version="1.0"><dict>
   <key>Label</key>            <string>com.omlx.coding</string>
   <key>ProgramArguments</key> <array>
-    <string>/Volumes/Model/omlx/bin/omlx-guard</string>
+    <string>/Users/xiamingxing/omlx/bin/omlx-guard</string>
     <string>coding</string>
   </array>
   <key>RunAtLoad</key>        <false/>   <!-- 模式A 改 true -->
@@ -50,10 +50,10 @@ exec omlx serve "$SVC" -f      # -f 前台，stdout/stderr 由 launchd 收集
   </dict>
   <key>ThrottleInterval</key> <integer>30</integer>  <!-- 重启间隔，防刷 -->
   <key>WatchPaths</key>      <array>
-    <string>/Volumes/Model/omlx</string>  <!-- 盘恢复挂载时触发 -->
+    <string>/Volumes/SHAREDMODEL</string>  <!-- 模型盘恢复挂载时触发 -->
   </array>
-  <key>StandardOutPath</key>  <string>/Volumes/Model/omlx/logs/launchd-coding.out</string>
-  <key>StandardErrorPath</key><string>/Volumes/Model/omlx/logs/launchd-coding.err</string>
+  <key>StandardOutPath</key>  <string>/Users/xiamingxing/omlx/logs/launchd-coding.out</string>
+  <key>StandardErrorPath</key><string>/Users/xiamingxing/omlx/logs/launchd-coding.err</string>
 </dict></plist>
 ```
 

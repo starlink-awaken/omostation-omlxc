@@ -1,5 +1,5 @@
 {
-  "_comment": "omlx 单一数据源 (schema v2)。CLI `omlx` 读取本文件。落地: /Users/xiamingxing/omlx/conf/models.json — 2026-08-10 从 /Volumes/Model/omlx 迁出: launchd 服务受 macOS TCC 限制无法执行外置卷上的二进制(Operation not permitted), 导致 aetherforge 门面无法调用 omlx。模型权重仍在 /Volumes/Model/LMStudio, 未迁移。",
+  "_comment": "omlx 单一数据源 (schema v2)。CLI `omlx` 读取本文件。落地: /Users/xiamingxing/omlx/conf/models.json — 2026-08-10 从 /Volumes/Model/omlx 迁出: launchd 服务受 macOS TCC 限制无法执行外置卷上的二进制(Operation not permitted), 导致 aetherforge 门面无法调用 omlx。2026-10-11 (BET-Y2Q4-T10-242) 模型权重并轨 /Volumes/SHAREDMODEL/lmstudio, Model 1T 转 TM 专用。",
   "version": 2,
   "active_root": "/Users/xiamingxing/omlx/models-active",
   "omlx_app": {
@@ -604,7 +604,7 @@
   "disabled": {
     "vision-nemotron-omini": {
       "reason": "GGUF 格式，MLX(mlx_lm/mlx_vlm) 无法加载。请用 LM Studio 或 Ollama(llama.cpp) 运行。",
-      "path": "/Volumes/Model/LMStudio/lmstudio-community/nemotron-3-nano-omni-30b-a3b-reasoning-gguf"
+      "path": "/Volumes/SHAREDMODEL/lmstudio/lmstudio-community/nemotron-3-nano-omni-30b-a3b-reasoning-gguf"
     }
   },
   "autopilot": {
