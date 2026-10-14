@@ -143,4 +143,4 @@ fi
 
 echo ""
 echo "--- 磁盘 (模型卷) ---"
-df -h /Volumes/Model 2>/dev/null | tail -1 || echo "  (无法读取)"
+df -h /Volumes/SHAREDMODEL 2>/dev/null | tail -1 || echo "  (无法读取)"
