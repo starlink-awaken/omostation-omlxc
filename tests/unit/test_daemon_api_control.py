@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -418,3 +419,38 @@ async def test_runtime_startup_and_shutdown_are_ordered_idempotent_and_fail_clos
     assert not failed.ready
     assert failed.diagnostic == "runtime_startup_failed"
     assert failed_calls == ["start:config", "start:recovery", "close:config"]
+
+
+@pytest.mark.asyncio
+async def test_unhandled_api_error_leaves_a_traceback_without_leaking_the_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 500 must leave a traceback behind, and must not leak the detail.
+
+    The generic handler used to swallow the exception entirely: the client saw
+    "E900 internal service error" and the log contained nothing at all — not
+    even the request id — so every real fault was undiagnosable from the host.
+    """
+
+    class ExplodingControl(FakeControlService):
+        async def health(self) -> dict[str, Any]:
+            raise RuntimeError("secret-detail-xyz")
+
+    transport = httpx.ASGITransport(app=create_app(control=ExplodingControl()))
+    request_id = "req-1234567890"
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        with caplog.at_level(logging.ERROR):
+            response = await client.get(
+                "/api/v1/health",
+                headers={"X-OMLXC-Request-ID": request_id},
+            )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"]["code"] == "E900"
+    assert "secret-detail-xyz" not in response.text
+    assert body.get("request_id") == request_id
+    records = [record for record in caplog.records if record.exc_info is not None]
+    assert records, "the unhandled error left no traceback in the log"
+    assert any(request_id in record.getMessage() for record in records)
+    assert any("secret-detail-xyz" in str(record.exc_info) for record in records)
