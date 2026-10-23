@@ -56,8 +56,9 @@ _PROBE_CHAT_TIMEOUT = 5.0
 DEFAULT_MINIMUM_VERSION = (0, 5, 0)
 # 2026-08-26: 上界 (0,6,0) 拒掉了 oMLX App 0.6.x 自己(实测 0.6.2 →
 # compatible=False → 全 placement available=False → 409, 第六层终修)。
+# 2026-10-24: 0.7.2 复发同一种上界排除故障, 放行整个 0.7.x。
 # 上界语义 = 放行至下一主版本前的所有次版本。
-DEFAULT_MAXIMUM_VERSION = (0, 7, 0)
+DEFAULT_MAXIMUM_VERSION = (0, 8, 0)
 
 
 def _object_mapping(value: object) -> Mapping[str, object] | None:

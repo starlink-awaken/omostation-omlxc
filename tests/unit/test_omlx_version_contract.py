@@ -12,3 +12,10 @@ def test_omlx_062_in_contract() -> None:
     assert DEFAULT_MINIMUM_VERSION <= actual < DEFAULT_MAXIMUM_VERSION, (
         f"oMLX 0.6.2 被契约 [{DEFAULT_MINIMUM_VERSION}, {DEFAULT_MAXIMUM_VERSION}) 拒绝"
     )
+
+
+def test_omlx_072_in_contract() -> None:
+    actual = (0, 7, 2)
+    assert DEFAULT_MINIMUM_VERSION <= actual < DEFAULT_MAXIMUM_VERSION, (
+        f"oMLX 0.7.2 被契约 [{DEFAULT_MINIMUM_VERSION}, {DEFAULT_MAXIMUM_VERSION}) 拒绝"
+    )
