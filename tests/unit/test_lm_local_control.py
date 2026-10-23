@@ -55,14 +55,23 @@ def _transport(*, downloaded_ids: Iterable[str] = ("model-a",)) -> httpx.MockTra
 def _runner(
     calls: list[tuple[str, ...]],
     *,
-    status_stdout: str = "The server is running on port 1234.",
+    status_stdout: str = "",
+    status_stderr: str = "The server is running on port 1234.",
     ps_stdout: str = "[]",
 ):
+    """⚠⚠⚠ **假 runner 的流分配必须照抄真工具**（§5.69 实测踩到）：
+
+    实测 MBP：`lms ps --json` / `lms ls --json` 写 **stdout**，
+    而 `lms server status` 这条**人话状态**写的是 **stderr**
+    ⇒ 假 runner 若把 status 放在 stdout ⇒ **单测全绿、真机全灭**
+    （装上去之后 8 条 lm_studio 落点全变 unavailable）。
+    """
+
     async def runner(argv: tuple[str, ...], timeout: float) -> ProcessOutput:
         del timeout
         calls.append(argv)
         if argv[-2:] == ("server", "status"):
-            return ProcessOutput(returncode=0, stdout=status_stdout, stderr="")
+            return ProcessOutput(returncode=0, stdout=status_stdout, stderr=status_stderr)
         if argv[-2:] == ("ps", "--json"):
             return ProcessOutput(returncode=0, stdout=ps_stdout, stderr="")
         return ProcessOutput(returncode=0, stdout="", stderr="")
@@ -145,7 +154,7 @@ async def test_local_control_is_off_when_flag_is_false() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "status_stdout",
+    "status_stderr",
     [
         "",
         "The server is running on port 9999.",
@@ -153,7 +162,7 @@ async def test_local_control_is_off_when_flag_is_false() -> None:
     ],
 )
 async def test_local_control_refuses_when_the_instance_does_not_match(
-    status_stdout: str,
+    status_stderr: str,
 ) -> None:
     """⚠⚠⚠ **端口对不上 ⇒ 不许发控制命令**（fail-closed）。
 
@@ -167,7 +176,7 @@ async def test_local_control_refuses_when_the_instance_does_not_match(
         base_url="http://127.0.0.1:1234",
         lms_executable=LOCAL_EXECUTABLE,
         local_control=True,
-        process_runner=_runner(calls, status_stdout=status_stdout),
+        process_runner=_runner(calls, status_stderr=status_stderr),
         transport=_transport(),
     )
 
@@ -181,6 +190,28 @@ async def test_local_control_refuses_when_the_instance_does_not_match(
     # ⚠⚠⚠ **控制命令一条都不许发**（只允许那次「核对身份」的 status）
     assert not any(argv[-2:] == ("ps", "--json") for argv in calls), calls
     assert not any(argv[1:3] == ("load", "model-a") for argv in calls), calls
+
+
+@pytest.mark.asyncio
+async def test_local_control_accepts_the_status_on_either_stream() -> None:
+    """⚠⚠⚠ **两个流都要读** —— 真工具把这条人话状态写 **stderr**，但不许因此判「不可判」。
+
+    ⇒ 只读 stdout ⇒ 永远解析不出端口 ⇒ fail-closed ⇒ **落点全变不可用**。
+    """
+    calls: list[tuple[str, ...]] = []
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        lms_executable=LOCAL_EXECUTABLE,
+        local_control=True,
+        process_runner=_runner(calls, status_stdout="The server is running on port 1234."),
+        transport=_transport(),
+    )
+
+    models = await adapter.list_models()
+
+    assert models, "状态在 stdout 上也必须认 ⇒ 否则落点会集体不可用"
+    assert models[0].loaded is False
 
 
 @pytest.mark.asyncio

@@ -382,7 +382,13 @@ class LmStudioAdapter:
                 message="LM Studio local instance identity is unverifiable",
                 detail={},
             ) from None
-        match = re.search(r"port\s+(\d+)", output.stdout or "")
+        # ⚠⚠⚠ **必须同时读 stdout 与 stderr**（§5.69 实测踩到）：
+        # `lms ps --json` / `lms ls --json` 写 **stdout**，
+        # 而 `lms server status` 这条**人话状态**写的是 **stderr** ⇒
+        # 只读 stdout ⇒ **永远解析不出端口** ⇒ fail-closed ⇒
+        # **所有落点变不可用**（实测：装上本地控制后 8 条 lm_studio 落点全变 unavailable）。
+        text = (output.stdout or "") + (output.stderr or "")
+        match = re.search(r"port\s+(\d+)", text)
         if match is None:
             raise AdapterFailure.from_detail(
                 code=AdapterErrorCode.UNSUPPORTED,
