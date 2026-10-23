@@ -1785,8 +1785,17 @@ async def test_idle_inventory_fallback_still_yields_a_usable_snapshot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_loaded_openai_inventory_wins_over_the_native_fallback() -> None:
-    """When the OpenAI-compatible surface has models, it stays authoritative."""
+async def test_inventory_is_the_union_of_both_surfaces() -> None:
+    """⚠⚠⚠ **库存 = 两个面的并集**（§5.69 实测订正了本测试原先写的契约）。
+
+    ⚠ **本测试原先写的是「OpenAI 面非空时它就是权威的」** —— **那条契约本身就是病**：
+    `/v1/models`（OpenAI 兼容面）**只列已加载的模型** ⇒ 它一旦非空
+    （实测：加载了 `minicpm-v-4.6` 之后它就只列那 1 个）
+    ⇒ **其余已下载模型会从库存里整体消失** ⇒ **它们的落点全部变 unavailable**
+    ⇒ **后端是 fresh 的，但库存少了一大截**（后端级 stale 的另一种形态）。
+
+    ⇒ **原生面 `/api/v1/models` 是完整清单（已下载）** ⇒ **恒取并集**。
+    """
 
     adapter = LmStudioAdapter(
         backend_id="lm",
@@ -1800,8 +1809,9 @@ async def test_loaded_openai_inventory_wins_over_the_native_fallback() -> None:
 
     models = await adapter.list_models()
 
-    assert "loaded-model" in [model.id for model in models]
-    assert "downloaded-model" not in [model.id for model in models]
+    ids = [model.id for model in models]
+    assert "loaded-model" in ids
+    assert "downloaded-model" in ids
 
 
 @pytest.mark.asyncio

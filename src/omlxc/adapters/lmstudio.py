@@ -803,13 +803,20 @@ class LmStudioAdapter:
                 continue
             if model_id not in http_ids:
                 http_ids.append(model_id)
-        if not http_ids:
-            # 2026-10-24: /v1/models 是 LM Studio 的 OpenAI 兼容面, 它只列「当前已加载」的模型;
-            # LM Studio 空闲时它是空数组 ⇒ 整个后端看起来一个模型都没有(实测 MBP: 磁盘上 96 个
-            # 已下载模型, /v1/models 的 data 是 [])。原生面 /api/v1/models 列的是「全部已下载」,
-            # 它的 key 就是路由表用的那个 id(例如 google/gemma-4-e2b)⇒ 用它兜底,
-            # 让「已下载但未加载」的模型(JIT 可加载)不再凭空消失。
-            http_ids = list(await self._native_model_ids())
+        # 2026-10-24: /v1/models 是 LM Studio 的 OpenAI 兼容面, 它只列「当前已加载」的模型;
+        # LM Studio 空闲时它是空数组 ⇒ 整个后端看起来一个模型都没有(实测 MBP: 磁盘上 96 个
+        # 已下载模型, /v1/models 的 data 是 [])。原生面 /api/v1/models 列的是「全部已下载」,
+        # 它的 key 就是路由表用的那个 id(例如 google/gemma-4-e2b)⇒ 让「已下载但未加载」的模型
+        # (JIT 可加载)不再凭空消失。
+        #
+        # ⚠⚠⚠ **必须是并集, 不能是「空才兜底」**（§5.69 实测踩到）：
+        # 「只列已加载」这个面**一旦非空**（实测: 加载了 minicpm-v-4.6 之后它就只列那 1 个）
+        # ⇒ **其余 7 个已下载模型会从库存里整体消失** ⇒ **它们的落点全部变 unavailable**
+        # ⇒ **后端级 stale 的另一种形态**：后端是 fresh 的, 但库存少了一大截。
+        # ⇒ ⇒ 原生面是**完整清单** ⇒ **恒取并集**。
+        for native_id in await self._native_model_ids():
+            if native_id not in http_ids:
+                http_ids.append(native_id)
 
         control_rows, control_error = await self._probe_control()
         control_by_model: dict[str, _ControlRow] = {}
