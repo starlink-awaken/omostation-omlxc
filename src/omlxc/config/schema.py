@@ -177,6 +177,13 @@ class BackendConfig(ConfigModel):
     admin_credential_ref: str | None = None
     probe_model_id: str | None = None
     known_hosts_file: Path | None = None
+    # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就跑在 omlxcd 这台机器上时，
+    # `lms` **直跑**即可，**不需要 SSH 通道** ⇒ **不开新的访问控制面**。
+    # ⚠ **必须是绝对路径**：launchd 起的服务 PATH 不含 `~/.local/bin`
+    #   （实测 MBP：omlxcd 的 plist 里没有 PATH 键）⇒ 不能靠 PATH 猜。
+    # ⚠ **只对 LM 后端有效**，且**不与 control_endpoint 同时生效**
+    #   （SSH 优先：有 control_endpoint 就走 SSH）。
+    lms_executable: str | None = None
     lms_platform: Literal["macos", "windows"] = "macos"
     probe_timeout_seconds: float = Field(default=10.0, gt=0)
     # "state": 可用性只看原生状态接口, 生成健康交给真实流量熔断器(默认);
@@ -207,6 +214,17 @@ class BackendConfig(ConfigModel):
     def parse_known_hosts(cls, value: object) -> object:
         return Path(value) if isinstance(value, str) else value
 
+    @field_validator("lms_executable")
+    @classmethod
+    def validate_lms_executable(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.startswith("/"):
+            raise ValueError("lms_executable must be an absolute path")
+        if value != value.strip() or "\x00" in value:
+            raise ValueError("lms_executable must not contain padding or NUL")
+        return value
+
     @model_validator(mode="after")
     def validate_lm_control_pair(self) -> Self:
         if self.kind in {BackendKind.LM_STUDIO, BackendKind.LM_LINK}:
@@ -214,6 +232,11 @@ class BackendConfig(ConfigModel):
                 raise ValueError("LM control_endpoint and known_hosts_file must be configured together")
         elif self.known_hosts_file is not None:
             raise ValueError("known_hosts_file is only valid for LM backends")
+        if self.lms_executable is not None and self.kind not in {
+            BackendKind.LM_STUDIO,
+            BackendKind.LM_LINK,
+        }:
+            raise ValueError("lms_executable is only valid for LM backends")
         return self
 
 

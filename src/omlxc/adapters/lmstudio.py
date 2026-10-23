@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -125,6 +126,8 @@ class LmStudioAdapter:
         generation_probe: bool = True,
         ssh_target: str | None = None,
         known_hosts_file: Path | None = None,
+        lms_executable: str | None = None,
+        local_control: bool = False,
         platform: LmsPlatform = LmsPlatform.MACOS,
         process_runner: ProcessRunner | None = None,
         control_authorizer: ControlAuthorizer | None = None,
@@ -167,6 +170,13 @@ class LmStudioAdapter:
         self._probe_model_ids = probe_model_ids
         self._ssh_target = ssh_target
         self._known_hosts_file = known_hosts_file
+        # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就跑在本机时，`lms` **直跑**，
+        # **不开 SSH 通道** ⇒ 不需要新的访问控制面。
+        # ⚠ **默认关**：必须同时给出 `lms_executable`（绝对路径）**且** 由上层
+        # 确认 `base_url` 是 loopback ⇒ 否则一律按「无控制通道」处理。
+        self._lms_executable = lms_executable
+        self._local_control = bool(local_control) and lms_executable is not None
+        self._base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
         self._platform = LmsPlatform(platform)
         if process_output_limit <= 0:
             raise ValueError("process_output_limit must be positive")
@@ -315,8 +325,83 @@ class LmStudioAdapter:
             *arguments,
         )
 
+    def _local_control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**本机控制**：`lms` 直接跑在 omlxcd 所在的机器上（**不经 SSH**）。
+
+        ⚠⚠⚠ **为什么需要它**（§5.69 实测）：
+        适配器原本只有**一条**控制通道 —— SSH ⇒
+        **「LM Studio 就跑在本机」这件事反而没法控制**（要为本机开一条 SSH 通道 ⇒ 访问控制红线）。
+        ⇒ 而 `composition.py` 的既有约定**已经写着「loopback ⇒ 不用 SSH」**
+        ⇒ ⇒ **缺的正是这一个本地模式**，不是缺一条 SSH 通道。
+
+        ⚠⚠⚠ **同一性校验是硬前提**：`lms` CLI 控制的是**本机默认那个 LM Studio 实例**，
+        而后端指向的 `base_url` **可能**是另一个实例 ⇒
+        ⇒ **控制命令会打到错的实例上** ⇒ **加载/卸载错模型**。
+        ⇒ ⇒ 每次控制前必须先 `lms server status` **核对端口**（见 `_verify_local_instance`），
+        **对不上就 fail-closed**（宁可没有控制通道，也不要控制错实例）。
+        """
+        if self._lms_executable is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local control channel is not configured",
+                detail={},
+            )
+        return (self._lms_executable, *arguments)
+
+    def _control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**控制命令的 argv** —— 本机直跑 还是 走 SSH，由部署形态决定。"""
+        if self._local_control:
+            return self._local_control_argv(arguments)
+        return self._ssh_argv(arguments)
+
+    def _has_control_channel(self) -> bool:
+        """**有没有可用的控制通道** —— SSH 或 本机直跑。
+
+        ⚠ §5.69：**没有控制通道** ⇒ 加载路径只能「放行」（让 LM Studio 自己 JIT）
+        ⇒ 那正是 §5.67 记录的**内存洞**（按全局 defaultContextLength 打穿内存）。
+        """
+        return self._ssh_target is not None or self._local_control
+
+    async def _verify_local_instance(self) -> None:
+        """**核对 `lms` CLI 控制的实例 == 后端 `base_url` 指向的实例**（fail-closed）。
+
+        ⚠ **判据从实物推导**：`lms server status` 报的是**本机默认实例的端口**
+        （实测 MBP：「The server is running on port 1234.」）⇒
+        **端口一致 ⇒ 同一个实例**；**不一致 / 读不出来 ⇒ 不许控制**。
+        """
+        assert self._lms_executable is not None
+        try:
+            output = await self._runner((self._lms_executable, "server", "status"), 15.0)
+        except asyncio.CancelledError:
+            raise
+        except AdapterFailure:
+            raise
+        except (TimeoutError, OSError):
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            ) from None
+        match = re.search(r"port\s+(\d+)", output.stdout or "")
+        if match is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            )
+        if int(match.group(1)) != self._base_port:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance does not match the backend base_url",
+                detail={},
+            )
+
     async def _run_control(self, arguments: tuple[str, ...], *, timeout: float) -> ProcessOutput:
-        argv = self._ssh_argv(arguments)
+        argv = self._control_argv(arguments)
+        if self._local_control:
+            # ⚠⚠⚠ **控制前必须核对「同一个实例」** —— `lms` CLI 控制的是本机默认实例,
+            # 而 base_url 可能指向另一个 ⇒ 控制错实例 = 加载/卸载错模型。
+            await self._verify_local_instance()
         if self._control_authorizer is not None:
             assert self._ssh_target is not None
             try:
@@ -478,7 +563,7 @@ class LmStudioAdapter:
         return tuple(ids)
 
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             return await self._probe_rest_state()
         try:
             output = await self._run_control(("ps", "--json"), timeout=15.0)
@@ -1089,9 +1174,10 @@ class LmStudioAdapter:
         # 不拦截, 保留既有行为。
         if not self._loaded_cache_valid or model_id in self._known_loaded_ids:
             return None
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             # 无控制通道时无从受控加载; 放行是既有行为 (JIT 风险由 LM Studio
-            # 全局设置兜底), 不在本修复范围内改变无 SSH 后端的语义。
+            # 全局设置兜底), 不在本修复范围内改变无控制通道后端的语义。
+            # ⚠⚠⚠ §5.69: **本机 LM Studio 现在有本地控制通道了** ⇒ 不再走这条放行路径。
             return None
         result = await self.load_model(model_id)
         if result.status in (OperationStatus.SUCCEEDED, OperationStatus.UNCHANGED):

@@ -1533,11 +1533,17 @@ def build_configured_adapter(
             generation_probe=backend.readiness_probe == "generation",
         )
     else:
+        loopback = is_loopback_url(backend.base_url)
         control_authorizer = (
             _lm_control_authorizer(backend, tailscale)
-            if backend.control_endpoint is not None and not is_loopback_url(backend.base_url)
+            if backend.control_endpoint is not None and not loopback
             else None
         )
+        # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就在本机（loopback）时，
+        # `lms` **直跑**即可 ⇒ **不开 SSH 通道** ⇒ **不开新的访问控制面**。
+        # ⚠ **SSH 优先**：配了 control_endpoint 就走 SSH（那是跨机部署的形态）。
+        # ⚠ **默认关**：不配 `lms_executable` ⇒ 仍是「无控制通道」的既有语义。
+        local_control = backend.control_endpoint is None and loopback and backend.lms_executable is not None
         adapter = LmStudioAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
@@ -1545,6 +1551,8 @@ def build_configured_adapter(
             generation_probe=backend.readiness_probe == "generation",
             ssh_target=backend.control_endpoint,
             known_hosts_file=backend.known_hosts_file,
+            lms_executable=backend.lms_executable,
+            local_control=local_control,
             platform=LmsPlatform(backend.lms_platform),
             control_authorizer=control_authorizer,
             load_options=(
