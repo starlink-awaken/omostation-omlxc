@@ -437,6 +437,46 @@ class LmStudioAdapter:
                 )
         return tuple(rows), None
 
+    async def _native_model_ids(self) -> tuple[str, ...]:
+        """Every model LM Studio has downloaded, as the ids the routing table uses.
+
+        ``GET /api/v1/models`` is LM Studio's native surface: it lists every
+        downloaded model, and each entry's ``key`` is the identifier the routing
+        table references (``google/gemma-4-e2b``, ``qwen/qwen3-coder-next``, ...).
+        The OpenAI-compatible ``GET /v1/models`` lists only what is loaded, so on an
+        idle LM Studio it is empty and the backend looks model-less.
+
+        Returns () when the native surface is unavailable or unreadable; the caller
+        then keeps the previous (empty inventory) behaviour rather than failing.
+        """
+        try:
+            response = await self._send("GET", "/api/v1/models")
+            if not response.is_success:
+                return ()
+            document = _mapping(cast(object, response.json()))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return ()
+        raw_models = _list(document.get("models")) if document is not None else None
+        if raw_models is None:
+            return ()
+        ids: list[str] = []
+        for raw in raw_models:
+            item = _mapping(raw)
+            if item is None:
+                continue
+            key = item.get("key")
+            if not isinstance(key, str) or not key:
+                continue
+            try:
+                validate_model_token(key)
+            except ValueError:
+                continue
+            if key not in ids:
+                ids.append(key)
+        return tuple(ids)
+
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
         if self._ssh_target is None:
             return await self._probe_rest_state()
@@ -582,7 +622,12 @@ class LmStudioAdapter:
             # /api/v1/models、Ollama /api/ps、oMLX /v1/models/status), 能否生成交给真实流量的
             # placement 熔断器判定。合成推理探活会: 刷新 TTL 钉住模型; 思考型模型(Splash)在
             # token 预算内正文为空被误判; 模型忙时排队超时被误判 —— 并把后端上所有已加载模型一起判死。
-            generation_ready = True
+            # 2026-10-24: 必须同时要求 model_available —— CapabilitySnapshot 的校验器规定
+            # "generation_ready requires reachability, compatibility, and a model"。
+            # 无条件写 True 会让「库存为空」(LM Studio 空闲时 /v1/models 是空数组)直接抛
+            # ValidationError → probe 抛 → _fail_stale → 整个后端级 stale → 该后端所有落点全灭,
+            # 而且每 45 秒抛一次(实测 2026-10-05 起 3223 次)。这里要求有模型才谈得上「能生成」。
+            generation_ready = model_available
         elif probe_id is not None and probe_id in loaded_ids:
             # probe 用独立短超时: 探针模型可能正忙于长生成 (用户真实请求),
             # probe chat 会排在它后面。没有独立超时时, 排队会吃光 backend 级
@@ -667,6 +712,13 @@ class LmStudioAdapter:
                 continue
             if model_id not in http_ids:
                 http_ids.append(model_id)
+        if not http_ids:
+            # 2026-10-24: /v1/models 是 LM Studio 的 OpenAI 兼容面, 它只列「当前已加载」的模型;
+            # LM Studio 空闲时它是空数组 ⇒ 整个后端看起来一个模型都没有(实测 MBP: 磁盘上 96 个
+            # 已下载模型, /v1/models 的 data 是 [])。原生面 /api/v1/models 列的是「全部已下载」,
+            # 它的 key 就是路由表用的那个 id(例如 google/gemma-4-e2b)⇒ 用它兜底,
+            # 让「已下载但未加载」的模型(JIT 可加载)不再凭空消失。
+            http_ids = list(await self._native_model_ids())
 
         control_rows, control_error = await self._probe_control()
         control_by_model: dict[str, _ControlRow] = {}

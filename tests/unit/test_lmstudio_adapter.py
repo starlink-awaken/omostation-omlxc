@@ -1668,3 +1668,162 @@ async def test_state_readiness_marks_loaded_backend_ready_without_chat() -> None
 
     assert snapshot.generation_ready is True
     assert chat_calls == []
+
+
+def _idle_lm_transport(
+    *,
+    native_models: list[dict[str, object]] | None = None,
+    openai_data: list[dict[str, object]] | None = None,
+) -> httpx.MockTransport:
+    """An idle LM Studio: nothing loaded, but models may be downloaded.
+
+    LM Studio's OpenAI-compatible ``/v1/models`` lists only what is loaded, so an
+    idle server answers with an empty ``data`` array while its native
+    ``/api/v1/models`` still lists every downloaded model.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": list(openai_data or [])})
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": list(native_models or [])})
+        raise AssertionError(request.url.path)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_discover_with_empty_inventory_does_not_raise() -> None:
+    """An idle, empty LM Studio must not blow up the probe.
+
+    ``CapabilitySnapshot`` requires reachability, compatibility **and a model**
+    before ``generation_ready`` may be true. Claiming readiness without a model
+    used to raise ``ValidationError`` inside the probe, which the daemon turns
+    into a backend-level stale — every placement of that backend dies and the
+    error repeats on every probe interval.
+    """
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=_idle_lm_transport(),
+        generation_probe=False,
+    )
+
+    snapshot = await adapter.discover()
+
+    assert snapshot.reachable is True
+    assert snapshot.compatible is True
+    assert snapshot.model_available is False
+    assert snapshot.generation_ready is False
+
+
+@pytest.mark.asyncio
+async def test_generation_ready_never_claims_a_model_it_does_not_have() -> None:
+    """``generation_ready`` must imply ``model_available`` on every path."""
+
+    for native in ([], [{"key": "model-a", "loaded_instances": []}]):
+        adapter = LmStudioAdapter(
+            backend_id="lm",
+            base_url="http://127.0.0.1:1234",
+            transport=_idle_lm_transport(native_models=native),
+            generation_probe=False,
+        )
+
+        snapshot = await adapter.discover()
+
+        assert snapshot.generation_ready is False or snapshot.model_available is True
+
+
+@pytest.mark.asyncio
+async def test_downloaded_models_are_listed_while_lm_studio_is_idle() -> None:
+    """Downloaded-but-unloaded models must stay visible in the catalogue.
+
+    The OpenAI-compatible surface is empty on an idle LM Studio; the native
+    surface lists every downloaded model under the same id the routing table
+    uses. Without the fallback the backend reports no models at all.
+    """
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=_idle_lm_transport(
+            native_models=[
+                {"key": "google/gemma-4-e2b", "loaded_instances": []},
+                {"key": "qwen/qwen3-coder-next", "loaded_instances": []},
+            ],
+        ),
+        generation_probe=False,
+    )
+
+    models = await adapter.list_models()
+
+    assert [model.id for model in models] == ["google/gemma-4-e2b", "qwen/qwen3-coder-next"]
+    assert all(model.loaded is False for model in models)
+    assert all(model.state is ModelRuntimeState.AVAILABLE for model in models)
+
+
+@pytest.mark.asyncio
+async def test_idle_inventory_fallback_still_yields_a_usable_snapshot() -> None:
+    """The fallback must also make the backend report itself as having models."""
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=_idle_lm_transport(
+            native_models=[{"key": "minicpm-v-4.6", "loaded_instances": []}],
+        ),
+        generation_probe=False,
+    )
+
+    snapshot = await adapter.discover()
+
+    assert snapshot.model_available is True
+    assert snapshot.generation_ready is True
+    assert snapshot.reachable is True
+    assert snapshot.compatible is True
+
+
+@pytest.mark.asyncio
+async def test_loaded_openai_inventory_wins_over_the_native_fallback() -> None:
+    """When the OpenAI-compatible surface has models, it stays authoritative."""
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=_idle_lm_transport(
+            openai_data=[{"id": "loaded-model"}],
+            native_models=[{"key": "downloaded-model", "loaded_instances": []}],
+        ),
+        generation_probe=False,
+    )
+
+    models = await adapter.list_models()
+
+    assert "loaded-model" in [model.id for model in models]
+    assert "downloaded-model" not in [model.id for model in models]
+
+
+@pytest.mark.asyncio
+async def test_unreadable_native_inventory_degrades_instead_of_raising() -> None:
+    """A broken native surface must not turn into a probe exception."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": []})
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(500, json={"error": "boom"})
+        raise AssertionError(request.url.path)
+
+    adapter = LmStudioAdapter(
+        backend_id="lm",
+        base_url="http://127.0.0.1:1234",
+        transport=httpx.MockTransport(handler),
+        generation_probe=False,
+    )
+
+    snapshot = await adapter.discover()
+
+    assert snapshot.reachable is True
+    assert snapshot.model_available is False
+    assert snapshot.generation_ready is False
