@@ -110,7 +110,9 @@ class DataPlaneOrchestrator:
             error = result.error
             return result
         finally:
-            self._record_metric(request.request_id, started, success, error=error)
+            self._record_metric(
+                request.request_id, started, success, error=error, requested_model=route_request.model_id
+            )
 
     async def _chat_unobserved(
         self, route_request: RouteRequest, request: ChatRequest, *, deadline: float
@@ -296,7 +298,9 @@ class DataPlaneOrchestrator:
             error = result.error
             return result
         finally:
-            self._record_metric(request.request_id, started, success, error=error)
+            self._record_metric(
+                request.request_id, started, success, error=error, requested_model=route_request.model_id
+            )
 
     async def _embed_unobserved(
         self, route_request: RouteRequest, request: EmbeddingRequest, *, deadline: float
@@ -427,6 +431,7 @@ class DataPlaneOrchestrator:
                     success,
                     error_code=terminal_code,
                     phase=terminal_phase,
+                    requested_model=route_request.model_id,
                 )
 
     async def _stream_chat_unobserved(
@@ -708,6 +713,7 @@ class DataPlaneOrchestrator:
         error: ExecutionError | None = None,
         error_code: str | None = None,
         phase: StreamPhase | None = None,
+        requested_model: str | None = None,
     ) -> None:
         if self._telemetry is None:
             return
@@ -731,6 +737,7 @@ class DataPlaneOrchestrator:
                 success=success,
                 error_code=terminal_error_code,
                 phase=terminal_phase.value,
+                requested_model=requested_model,
             ):
                 self._telemetry_failed()
         except Exception:

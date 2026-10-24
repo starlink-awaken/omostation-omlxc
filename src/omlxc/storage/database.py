@@ -38,7 +38,7 @@ from .models import (
     UnsupportedSchemaError,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_PAGE_SIZE = 500
 _T = TypeVar("_T")
 _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -59,6 +59,7 @@ _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
         "candidate_json",
         "rejection_json",
         "config_revision",
+        "requested_model",
     ),
     "request_metrics": (
         "sequence",
@@ -68,6 +69,7 @@ _REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
         "success",
         "error_code",
         "phase",
+        "requested_model",
     ),
     "benchmark_runs": (
         "run_id",
@@ -159,6 +161,7 @@ _REQUIRED_COLUMN_SPECS: dict[str, tuple[tuple[str, str, int, str | None, int, in
         ("candidate_json", "TEXT", 1, None, 0, 0),
         ("rejection_json", "TEXT", 1, None, 0, 0),
         ("config_revision", "TEXT", 1, None, 0, 0),
+        ("requested_model", "TEXT", 0, None, 0, 0),
     ),
     "request_metrics": (
         ("sequence", "INTEGER", 0, None, 1, 0),
@@ -168,6 +171,7 @@ _REQUIRED_COLUMN_SPECS: dict[str, tuple[tuple[str, str, int, str | None, int, in
         ("success", "INTEGER", 1, None, 0, 0),
         ("error_code", "TEXT", 0, None, 0, 0),
         ("phase", "TEXT", 0, None, 0, 0),
+        ("requested_model", "TEXT", 0, None, 0, 0),
     ),
     "benchmark_runs": (
         ("run_id", "TEXT", 0, None, 1, 0),
@@ -385,6 +389,31 @@ _V4_INDEX_SQL = {
         ON benchmark_runs(placement_id, tested_at DESC)""",
 }
 _V4_SCHEMA_SQL = ";\n".join((*_V4_TABLE_SQL.values(), *_V4_INDEX_SQL.values()))
+_V5_TABLE_SQL = {
+    **_V4_TABLE_SQL,
+    "route_audits": """CREATE TABLE route_audits (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        selected_placement_id TEXT,
+        candidate_json TEXT NOT NULL,
+        rejection_json TEXT NOT NULL,
+        config_revision TEXT NOT NULL,
+        requested_model TEXT
+    )""",
+    "request_metrics": """CREATE TABLE request_metrics (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        latency_ms REAL NOT NULL,
+        success INTEGER NOT NULL CHECK(success IN (0, 1)),
+        error_code TEXT,
+        phase TEXT,
+        requested_model TEXT
+    )""",
+}
+_V5_INDEX_SQL = _V4_INDEX_SQL
+_V5_SCHEMA_SQL = ";\n".join((*_V5_TABLE_SQL.values(), *_V5_INDEX_SQL.values()))
 _SENSITIVE_TEXT = re.compile(
     r"(?:authorization\s*:|bearer\s+\S+|api[_-]?key|password|secret|token\s*[=:])",
     re.I,
@@ -772,6 +801,8 @@ class SQLiteRuntimeStore:
             _bounded_text(reason, "route rejection reason", reject_sensitive=True)
         if record.selected_placement_id is not None:
             _bounded_text(record.selected_placement_id, "selected placement")
+        if record.requested_model is not None:
+            _bounded_text(record.requested_model, "requested model")
         candidate_json = json.dumps(list(record.candidates), ensure_ascii=True, separators=(",", ":"))
         rejection_json = json.dumps(dict(record.rejections), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
         if len(candidate_json.encode()) + len(rejection_json.encode()) > _MAX_REPOSITORY_JSON_BYTES:
@@ -782,8 +813,8 @@ class SQLiteRuntimeStore:
                 """
                 INSERT INTO route_audits (
                     request_id, observed_at, selected_placement_id,
-                    candidate_json, rejection_json, config_revision
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    candidate_json, rejection_json, config_revision, requested_model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.request_id,
@@ -792,6 +823,7 @@ class SQLiteRuntimeStore:
                     candidate_json,
                     rejection_json,
                     record.config_revision,
+                    record.requested_model,
                 ),
             )
             if cursor.lastrowid is None:
@@ -803,6 +835,7 @@ class SQLiteRuntimeStore:
                 candidates=record.candidates,
                 rejections=MappingProxyType(dict(record.rejections)),
                 config_revision=record.config_revision,
+                requested_model=record.requested_model,
                 sequence=int(cursor.lastrowid),
             )
 
@@ -813,7 +846,7 @@ class SQLiteRuntimeStore:
         cursor = await self._require_reader().execute(
             """
             SELECT sequence, request_id, observed_at, selected_placement_id,
-                   candidate_json, rejection_json, config_revision
+                   candidate_json, rejection_json, config_revision, requested_model
             FROM route_audits WHERE sequence > ? ORDER BY sequence ASC LIMIT ?
             """,
             (after_sequence, limit),
@@ -941,8 +974,8 @@ class SQLiteRuntimeStore:
                 await connection.executemany(
                     """
                     INSERT INTO request_metrics
-                        (request_id, observed_at, latency_ms, success, error_code, phase)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (request_id, observed_at, latency_ms, success, error_code, phase, requested_model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
@@ -952,6 +985,7 @@ class SQLiteRuntimeStore:
                             int(metric.success),
                             metric.error_code,
                             metric.phase,
+                            metric.requested_model,
                         )
                         for metric in records
                     ],
@@ -975,7 +1009,7 @@ class SQLiteRuntimeStore:
         _validate_page(after_sequence, limit)
         cursor = await self._require_reader().execute(
             """
-            SELECT request_id, observed_at, latency_ms, success, error_code, phase
+            SELECT request_id, observed_at, latency_ms, success, error_code, phase, requested_model
             FROM request_metrics WHERE sequence > ? ORDER BY sequence ASC LIMIT ?
             """,
             (after_sequence, limit),
@@ -990,6 +1024,7 @@ class SQLiteRuntimeStore:
                 success=bool(row[3]),
                 error_code=str(row[4]) if row[4] is not None else None,
                 phase=str(row[5]) if row[5] is not None else None,
+                requested_model=str(row[6]) if row[6] is not None else None,
             )
             for row in rows
         )
@@ -1609,7 +1644,7 @@ async def _migrate(connection: aiosqlite.Connection) -> None:
     if version == SCHEMA_VERSION:
         return
     if version == 0:
-        await connection.executescript(f"BEGIN IMMEDIATE;\n{_V4_SCHEMA_SQL};\nPRAGMA user_version = 4;\nCOMMIT;")
+        await connection.executescript(f"BEGIN IMMEDIATE;\n{_V5_SCHEMA_SQL};\nPRAGMA user_version = 5;\nCOMMIT;")
         return
     if version == 1:
         await connection.executescript(
@@ -1632,6 +1667,17 @@ async def _migrate(connection: aiosqlite.Connection) -> None:
             f"BEGIN IMMEDIATE;\n{_V4_TABLE_SQL['benchmark_runs']};\n"
             f"{_V4_INDEX_SQL['benchmark_placement_idx']};\n"
             "PRAGMA user_version = 4;\nCOMMIT;"
+        )
+        version = 4
+    if version == 4:
+        await connection.executescript(
+            """
+            BEGIN IMMEDIATE;
+            ALTER TABLE request_metrics ADD COLUMN requested_model TEXT;
+            ALTER TABLE route_audits ADD COLUMN requested_model TEXT;
+            PRAGMA user_version = 5;
+            COMMIT;
+            """
         )
         return
     raise UnsupportedSchemaError("database schema migration path is unavailable")
@@ -1729,8 +1775,8 @@ async def _validate_schema(connection: aiosqlite.Connection) -> None:
         raise aiosqlite.DatabaseError("SQLite foreign key invariant failed")
 
     expected_objects = {
-        **{("table", name): sql for name, sql in _V4_TABLE_SQL.items()},
-        **{("index", name): sql for name, sql in _V4_INDEX_SQL.items()},
+        **{("table", name): sql for name, sql in _V5_TABLE_SQL.items()},
+        **{("index", name): sql for name, sql in _V5_INDEX_SQL.items()},
     }
     cursor = await connection.execute(
         "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
@@ -1945,6 +1991,7 @@ def _route_audit_record(row: Any) -> RouteAuditRecord:
             candidates=candidates,
             rejections=rejections,
             config_revision=str(row[6]),
+            requested_model=str(row[7]) if row[7] is not None else None,
         )
     except (TypeError, ValueError, UnicodeError):
         raise _stored_value_error() from None

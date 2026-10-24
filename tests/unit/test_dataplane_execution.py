@@ -379,8 +379,9 @@ class BrokenTelemetry:
         success: bool,
         error_code: str | None = None,
         phase: str | None = None,
+        requested_model: str | None = None,
     ) -> bool:
-        del request_id, latency_ms, success, error_code, phase
+        del request_id, latency_ms, success, error_code, phase, requested_model
         raise RuntimeError("database-path=do-not-leak")
 
 

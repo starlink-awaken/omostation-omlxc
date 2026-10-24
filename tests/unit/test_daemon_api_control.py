@@ -105,6 +105,7 @@ class FakeControlService:
         self.route_requests.append(request)
         return RouteDecision(
             request_id=request_id,
+            requested_model=request.model_id,
             selected_placement_id="placement-a",
             candidates=("placement-a",),
             candidate_scores={"placement-a": 1.0},
