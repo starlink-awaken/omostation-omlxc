@@ -1535,6 +1535,10 @@ def build_configured_adapter(
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
             generation_probe=backend.readiness_probe == "generation",
+            # ⚠⚠⚠ **§5.73：ollama 也要拿到逐落点的上下文声明** ——
+            #   不给 ⇒ 适配器只能回落 32768，而**实到由那台机器的 VRAM 决定**
+            #   （实测：MBP 262144 / mini 4096）⇒ **承诺与实到脱钩**。
+            placement_context_limits=placement_context_limits,
         )
     else:
         loopback = is_loopback_url(backend.base_url)
