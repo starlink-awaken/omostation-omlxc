@@ -16,7 +16,6 @@ for _key in [
     "https_proxy",
     "NO_PROXY",
     "no_proxy",
-    "OMLXC_MEMORY_GUARD_CAPACITY_GB",
 ]:
     os.environ.pop(_key, None)
 
