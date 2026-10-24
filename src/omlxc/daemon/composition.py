@@ -1458,20 +1458,24 @@ def build_configured_adapters(
     # 合法的 lms --ttl 值 (LmsLoadOptions.ttl_seconds 要求 ge=1)。
     default_ttl_seconds = config.policies.idle_ttl_seconds if config.policies.idle_ttl_seconds else None
     for backend in config.backends:
-        # LM Studio 系后端: 数据面 ensure_loaded 触发的 lms load 必须显式带上
-        # 上下文限制 (取该 backend 全部 placement 的最小 context_limit)。
-        # 否则裸 lms load 落到 LM Studio 全局 defaultContextLength 设置 —
-        # 本机曾被观察到按模型最大值 (262144/852736) 加载, 28GB+ 权重直接
-        # 打穿统一内存 (2026-08-22 多次实测)。取 min 是刻意收紧: 宁可截断
-        # 长上下文也不能放任失控加载。
-        context_length = min(
-            (
-                placement.context_limit
-                for placement in config.placements
-                if placement.backend_id == backend.id and placement.context_limit
-            ),
-            default=None,
-        )
+        # ⚠⚠⚠ **逐落点的上下文声明**（§5.70）：交给适配器**逐模型**算 `-c`。
+        #
+        # 旧实现是「该 backend 全部 placement 的最小 context_limit」，
+        # **default=None** ⇒ 没人声明就**不带 -c** ⇒ LM Studio 落到全局
+        # defaultContextLength（实测 262144）⇒ **路由承诺 32768、实到 262144**
+        # ⇒ 28GB+ 权重按最大上下文分配，直接打穿统一内存（2026-08-22 多次实测）。
+        #
+        # 现在改成：
+        # - **逐落点**（键 = `backend_model_id`，也就是 `lms load` 的实参）
+        #   ⇒ 小的声明不再把大的拖死；
+        # - 适配器内部用 `effective_context_limit()` 出数，
+        #   **声明只能收紧、实物是硬上限、都没说就回落 32768**
+        #   ⇒ `-c` **永远有值** ⇒ 与路由侧的承诺同源。
+        placement_context_limits = {
+            placement.backend_model_id: placement.context_limit
+            for placement in config.placements
+            if placement.backend_id == backend.id and placement.context_limit is not None
+        }
         # A backend can host more than one chat-role model (e.g. Ollama/LM
         # Studio serving several placements at once), so a single fixed probe
         # id can point at a model that isn't actually loaded while a sibling
@@ -1503,7 +1507,7 @@ def build_configured_adapters(
         adapters[backend.id] = build_configured_adapter(
             backend,
             tailscale=tailscale,
-            load_context_length=context_length,
+            placement_context_limits=placement_context_limits,
             default_ttl_seconds=default_ttl_seconds,
             probe_candidates=probe_candidates or None,
         )
@@ -1514,7 +1518,7 @@ def build_configured_adapter(
     backend: BackendConfig,
     *,
     tailscale: TailscaleAdapter | None = None,
-    load_context_length: int | None = None,
+    placement_context_limits: Mapping[str, int] | None = None,
     default_ttl_seconds: int | None = None,
     probe_candidates: frozenset[str] | None = None,
 ) -> BackendAdapter:
@@ -1553,13 +1557,10 @@ def build_configured_adapter(
             known_hosts_file=backend.known_hosts_file,
             lms_executable=backend.lms_executable,
             local_control=local_control,
+            placement_context_limits=placement_context_limits,
             platform=LmsPlatform(backend.lms_platform),
             control_authorizer=control_authorizer,
-            load_options=(
-                LmsLoadOptions(context_length=load_context_length, ttl_seconds=default_ttl_seconds)
-                if load_context_length is not None or default_ttl_seconds is not None
-                else None
-            ),
+            load_options=(LmsLoadOptions(ttl_seconds=default_ttl_seconds) if default_ttl_seconds is not None else None),
         )
     return cast(BackendAdapter, adapter)
 
