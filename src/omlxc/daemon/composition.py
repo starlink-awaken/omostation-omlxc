@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import platform
 import subprocess
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -68,6 +69,7 @@ from omlxc.dataplane import (
     RerankExecution,
     RerankRequest,
     RouteTelemetryRecorder,
+    VRAMBudgetEstimator,
 )
 from omlxc.dataplane.reranker import RerankEngine
 from omlxc.domain import (
@@ -86,6 +88,7 @@ from omlxc.domain import (
     RouteDecision,
     RouteRequest,
 )
+from omlxc.domain.context import DEFAULT_CONTEXT_LIMIT
 from omlxc.domain.protocols import (
     AdapterCapability,
     AdapterErrorCode,
@@ -279,6 +282,7 @@ class CatalogProbe:
         tailscale: TailscaleAdapter | None,
         now: Callable[[], datetime],
         storage: StorageHandle | None = None,
+        local_physical_memory_gb: float | None = None,
     ) -> None:
         self._config = config
         self._adapters = dict(adapters)
@@ -304,6 +308,10 @@ class CatalogProbe:
         self._nodes = {item.id: item for item in config.nodes}
         self._backends = {item.id: item for item in config.backends}
         self._backend_nodes = {item.id: item.node_id for item in config.backends}
+        self._physical_memory_gb = (
+            local_physical_memory_gb if local_physical_memory_gb is not None else _local_physical_memory_gb()
+        )
+        self._vram_estimator = VRAMBudgetEstimator()
         self._diagnostics = {item.id: NodeDiagnosticCode.NOT_PROBED for item in config.backends}
         self._high_water: dict[tuple[str, str], int] = {}
         self._drops: dict[tuple[str, str], tuple[int, int]] = {}
@@ -502,7 +510,7 @@ class CatalogProbe:
                     if model is not None and model.context_limit is not None
                     else (placement.context_limit if placement.context_limit is not None else 32768)
                 ),
-                memory_admitted=self._memory_admitted(placement),
+                memory_admitted=self._memory_admitted(placement, inventory=inventory),
                 loaded=loaded,
                 available_concurrency=1 if loadable else 0,
                 local=local,
@@ -530,19 +538,54 @@ class CatalogProbe:
             for code, count in sorted(counts.items(), key=lambda item: item[0].value)
         )
 
-    def _memory_admitted(self, placement: PlacementConfig) -> bool | None:
-        memory_gb = placement.memory_gb
-        if memory_gb is None:
-            configured_model = self._models.get(placement.model_id)
-            if configured_model is not None and configured_model.size_gb is not None:
-                memory_gb = configured_model.size_gb
-        if memory_gb is None:
-            return None
+    def _memory_admitted(
+        self,
+        placement: PlacementConfig,
+        *,
+        inventory: Mapping[str, ModelRuntime],
+    ) -> bool | None:
+        backend = self._backends.get(placement.backend_id)
         node_id = self._backend_nodes.get(placement.backend_id)
-        if node_id is None:
+        if backend is None or node_id is None:
             return None
-        available = self._nodes[node_id].memory_gb
-        return None if available is None else memory_gb <= available
+        budget_gb = self._physical_memory_gb if is_loopback_url(backend.base_url) else self._nodes[node_id].memory_gb
+        if budget_gb is None:
+            return None
+
+        requirements = self._backend_memory_requirements(backend.id)
+        if requirements is None:
+            return None
+        required_gb = 0.0
+        for backend_model_id, requirement_gb in requirements.items():
+            runtime = inventory.get(backend_model_id)
+            if runtime is not None and runtime.state is ModelRuntimeState.LOADED:
+                required_gb += requirement_gb
+            elif backend_model_id == placement.backend_model_id:
+                required_gb += requirement_gb
+
+        return required_gb <= budget_gb
+
+    def _backend_memory_requirements(self, backend_id: str) -> dict[str, float] | None:
+        requirements: dict[str, float] = {}
+        for candidate in self._config.placements:
+            if candidate.backend_id != backend_id:
+                continue
+            memory_gb = self._placement_memory_gb(candidate)
+            if memory_gb is None:
+                return None
+            context_limit = candidate.context_limit if candidate.context_limit is not None else DEFAULT_CONTEXT_LIMIT
+            memory_gb += self._vram_estimator.estimate_kv_cache_mb(
+                candidate.model_id,
+                context_tokens=context_limit,
+            ) / 1024.0
+            requirements[candidate.backend_model_id] = max(requirements.get(candidate.backend_model_id, 0.0), memory_gb)
+        return requirements
+
+    def _placement_memory_gb(self, placement: PlacementConfig) -> float | None:
+        if placement.memory_gb is not None:
+            return placement.memory_gb
+        configured_model = self._models.get(placement.model_id)
+        return configured_model.size_gb if configured_model is not None else None
 
     def _fail_authorization(self, backend_id: str) -> None:
         for snapshot in self._catalog.get():
@@ -1300,6 +1343,23 @@ async def _sample_memory_snapshot() -> MemorySnapshot | None:
     )
 
 
+def _local_physical_memory_gb() -> float | None:
+    if platform.system() != "Darwin":
+        return None
+    try:
+        completed = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+        total_bytes = int(completed.stdout.strip())
+    except Exception:
+        return None
+    return total_bytes / 1024**3 if total_bytes > 0 else None
+
+
 class ReconcileRuntime:
     """Adapts ReconcileLoop's start/stop to the RuntimeComponent start/close contract."""
 
@@ -1334,6 +1394,7 @@ def build_production_daemon(
     metric_flush_interval_seconds: float = 0.25,
     config_path: Path | None = None,
     memory_probe: Callable[[], Awaitable[MemorySnapshot | None]] | None = None,
+    local_physical_memory_gb: float | None = None,
 ) -> ProductionComposition:
     """Build the real daemon graph without starting network or model operations."""
     clock = now or (lambda: datetime.now(UTC))
@@ -1354,6 +1415,7 @@ def build_production_daemon(
         tailscale=configured_tailscale,
         now=clock,
         storage=storage,
+        local_physical_memory_gb=local_physical_memory_gb,
     )
     target_factory = PlacementTargetFactory(config)
     placement_operator = ProductionPlacementOperator(
