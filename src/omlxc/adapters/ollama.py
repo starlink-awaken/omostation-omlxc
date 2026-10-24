@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from omlxc.domain.context import effective_context_limit
 from omlxc.domain.protocols import (
     AdapterCapability,
     AdapterError,
@@ -138,6 +139,7 @@ class OllamaAdapter:
         max_images: int = DEFAULT_MAX_IMAGES,
         max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES,
         max_total_image_bytes: int = DEFAULT_MAX_TOTAL_IMAGE_BYTES,
+        placement_context_limits: Mapping[str, int] | None = None,
     ) -> None:
         if _CONTROL.search(base_url):
             raise ValueError("base_url must not contain control characters")
@@ -188,6 +190,15 @@ class OllamaAdapter:
         self._base_url = httpx.URL(base_url.rstrip("/") + "/")
         self._probe_model_ids = probe_model_ids
         self._keep_alive_seconds = keep_alive_seconds
+        # ⚠⚠⚠ **逐落点的上下文声明**（§5.73）：键是 Ollama 的模型名
+        # （= `placement.backend_model_id`），值是 `placement.context_limit`
+        # （**人为的刻意收紧**）。
+        # ⚠ 与 LM Studio 同款：不能用「后端级 min」⇒ 小的声明会把大的拖死。
+        self._placement_context_limits = dict(placement_context_limits or {})
+        # ⚠ **实物真值**：原生面的 `details.context_length`（= 模型的物理上限）
+        #   ⇒ 声明超过物理上限时按物理上限算（fail-closed）。
+        #   每轮 inventory 刷新；原生面读不到时保持上一轮的已知值。
+        self._native_contexts: dict[str, int] = {}
         self._clock = clock or (lambda: datetime.now(UTC))
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(transport=transport, trust_env=False)
@@ -424,8 +435,43 @@ class OllamaAdapter:
         try:
             running = await self._inventory("/api/ps")
         except AdapterFailure:
-            return tuple(ModelRuntime(id=item.model_id, state=ModelRuntimeState.UNKNOWN, loaded=None) for item in tags)
-        return self._merge_inventory(tags, running)
+            merged = tuple(
+                ModelRuntime(id=item.model_id, state=ModelRuntimeState.UNKNOWN, loaded=None)
+                for item in tags
+            )
+            self._remember_native_contexts(tags)
+            return merged
+        merged = self._merge_inventory(tags, running)
+        self._remember_native_contexts(tags)
+        return merged
+
+    def _remember_native_contexts(self, tags: tuple[_Identity, ...]) -> None:
+        """记住**原生上限**（§5.73）—— 原生面读不到时保持上一轮的已知值。"""
+        for item in tags:
+            if item.context_limit is not None:
+                self._native_contexts[item.model_id] = item.context_limit
+
+    def _effective_context(self, model_id: str) -> int:
+        """这个模型**实际以多少上下文服务**（§5.73）。
+
+        规则见 :func:`omlxc.domain.context.effective_context_limit`：
+
+        - ``声明``（``placement.context_limit``）只能**收紧**；
+        - ``实物``（原生面 ``details.context_length``）是**硬上限**；
+        - 谁都没说 ⇒ 回落 **32768**（既有口径，catalog 侧同一个兜底）。
+
+        ⚠⚠⚠ **绝不能返回 None**：那等于「**不告诉 ollama 要多大窗口**」
+        ⇒ ollama 回落到**它自己算的默认值**
+        ⇒ ⚠ **而那个默认值由「那台机器有多少 VRAM」决定**
+        （实测 2026-10-24：MBP ``112.0 GiB ⇒ default_num_ctx=262144``；
+        mini ``17.8 GiB ⇒ 4096``）
+        ⇒ ⇒ **同一个承诺（32768）在两台机器上是两个相反的实到**
+        ⇒ ⇒ **这条分支必须 fail-closed。**
+        """
+        return effective_context_limit(
+            self._placement_context_limits.get(model_id),
+            self._native_contexts.get(model_id),
+        )
 
     async def _inventory(self, endpoint: str) -> tuple[_Identity, ...]:
         response = await self._send("GET", endpoint)
@@ -462,7 +508,16 @@ class OllamaAdapter:
             aliases_seen.update(aliases)
             if digest is not None:
                 digests_seen.add(digest)
-            context = item.get("context_length")
+            # ⚠⚠⚠ **差一层**（§5.73）：ollama 把 `context_length` 放在
+            #   **`details.context_length`**，而这里读的是**顶层**
+            #   ⇒ ⇒ **原生上限永远读不到**（实测 2026-10-24：ollama 0.40.9
+            #   的 `/api/tags` 顶层**没有**这个键，四个模型全是 `None`）
+            #   ⇒ ⇒ 承诺永远落回 32768 天花板，而**实到由那台机器的 VRAM 决定**。
+            # ⚠ **顶层那个键保留作兜底**（别的 ollama 版本 / `/api/ps` 形状可能给顶层）。
+            details = item.get("details")
+            context = details.get("context_length") if isinstance(details, Mapping) else None
+            if context is None:
+                context = item.get("context_length")
             context_limit = (
                 context if isinstance(context, int) and not isinstance(context, bool) and context > 0 else None
             )
@@ -591,6 +646,10 @@ class OllamaAdapter:
             "prompt": "",
             "stream": False,
             "keep_alive": self._keep_alive_seconds if load else 0,
+            # ⚠⚠⚠ **§5.73：加载时也要带上窗口** ——
+            #   加载出来的模型**以这个窗口服务**；
+            #   不带 ⇒ ollama 用它自己算的默认值（由那台机器的 VRAM 决定）。
+            "options": {"num_ctx": self._effective_context(model_id)},
         }
         try:
             response = await self._send("POST", "/api/generate", payload=payload)
@@ -706,6 +765,9 @@ class OllamaAdapter:
                     "prompt": "",
                     "stream": False,
                     "keep_alive": keep_alive,
+                    # ⚠⚠⚠ **§5.73**：keep-alive 也要带窗口
+                    # ⇒ 否则「保活的那个模型」与服务中的那个**窗口不一致**。
+                    "options": {"num_ctx": self._effective_context(model_id)},
                 },
             )
             if not response.is_success:
@@ -828,6 +890,11 @@ class OllamaAdapter:
             "options": {
                 "num_predict": request.max_tokens,
                 "temperature": request.temperature,
+                # ⚠⚠⚠ **§5.73：上下文必须显式下发** ——
+                #   不给 `num_ctx` ⇒ ollama 用**它自己算的默认值**
+                #   ⇒ 实到与承诺脱钩，且**那台机器 VRAM 越大偏离越远**
+                #   （实测：MBP 实到 262144 vs 承诺 32768；mini 实到 4096 vs 承诺 32768）。
+                "num_ctx": self._effective_context(request.model),
             },
             "keep_alive": self._keep_alive_seconds,
         }
@@ -984,7 +1051,16 @@ class OllamaAdapter:
                 ),
             )
         try:
-            response = await self._send("POST", endpoint, payload={"model": request.model, "input": request.input})
+            response = await self._send(
+                "POST",
+                endpoint,
+                payload={
+                    "model": request.model,
+                    "input": request.input,
+                    # ⚠⚠⚠ **§5.73**：嵌入也是一次服务 ⇒ 窗口必须一致
+                    "options": {"num_ctx": self._effective_context(request.model)},
+                },
+            )
             if not response.is_success:
                 raise self._http_error(response, endpoint=endpoint)
             document = self._json_object(response, endpoint=endpoint)
