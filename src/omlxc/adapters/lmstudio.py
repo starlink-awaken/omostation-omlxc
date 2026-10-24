@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -125,6 +126,8 @@ class LmStudioAdapter:
         generation_probe: bool = True,
         ssh_target: str | None = None,
         known_hosts_file: Path | None = None,
+        lms_executable: str | None = None,
+        local_control: bool = False,
         platform: LmsPlatform = LmsPlatform.MACOS,
         process_runner: ProcessRunner | None = None,
         control_authorizer: ControlAuthorizer | None = None,
@@ -167,6 +170,13 @@ class LmStudioAdapter:
         self._probe_model_ids = probe_model_ids
         self._ssh_target = ssh_target
         self._known_hosts_file = known_hosts_file
+        # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就跑在本机时，`lms` **直跑**，
+        # **不开 SSH 通道** ⇒ 不需要新的访问控制面。
+        # ⚠ **默认关**：必须同时给出 `lms_executable`（绝对路径）**且** 由上层
+        # 确认 `base_url` 是 loopback ⇒ 否则一律按「无控制通道」处理。
+        self._lms_executable = lms_executable
+        self._local_control = bool(local_control) and lms_executable is not None
+        self._base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
         self._platform = LmsPlatform(platform)
         if process_output_limit <= 0:
             raise ValueError("process_output_limit must be positive")
@@ -315,8 +325,89 @@ class LmStudioAdapter:
             *arguments,
         )
 
+    def _local_control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**本机控制**：`lms` 直接跑在 omlxcd 所在的机器上（**不经 SSH**）。
+
+        ⚠⚠⚠ **为什么需要它**（§5.69 实测）：
+        适配器原本只有**一条**控制通道 —— SSH ⇒
+        **「LM Studio 就跑在本机」这件事反而没法控制**（要为本机开一条 SSH 通道 ⇒ 访问控制红线）。
+        ⇒ 而 `composition.py` 的既有约定**已经写着「loopback ⇒ 不用 SSH」**
+        ⇒ ⇒ **缺的正是这一个本地模式**，不是缺一条 SSH 通道。
+
+        ⚠⚠⚠ **同一性校验是硬前提**：`lms` CLI 控制的是**本机默认那个 LM Studio 实例**，
+        而后端指向的 `base_url` **可能**是另一个实例 ⇒
+        ⇒ **控制命令会打到错的实例上** ⇒ **加载/卸载错模型**。
+        ⇒ ⇒ 每次控制前必须先 `lms server status` **核对端口**（见 `_verify_local_instance`），
+        **对不上就 fail-closed**（宁可没有控制通道，也不要控制错实例）。
+        """
+        if self._lms_executable is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local control channel is not configured",
+                detail={},
+            )
+        return (self._lms_executable, *arguments)
+
+    def _control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**控制命令的 argv** —— 本机直跑 还是 走 SSH，由部署形态决定。"""
+        if self._local_control:
+            return self._local_control_argv(arguments)
+        return self._ssh_argv(arguments)
+
+    def _has_control_channel(self) -> bool:
+        """**有没有可用的控制通道** —— SSH 或 本机直跑。
+
+        ⚠ §5.69：**没有控制通道** ⇒ 加载路径只能「放行」（让 LM Studio 自己 JIT）
+        ⇒ 那正是 §5.67 记录的**内存洞**（按全局 defaultContextLength 打穿内存）。
+        """
+        return self._ssh_target is not None or self._local_control
+
+    async def _verify_local_instance(self) -> None:
+        """**核对 `lms` CLI 控制的实例 == 后端 `base_url` 指向的实例**（fail-closed）。
+
+        ⚠ **判据从实物推导**：`lms server status` 报的是**本机默认实例的端口**
+        （实测 MBP：「The server is running on port 1234.」）⇒
+        **端口一致 ⇒ 同一个实例**；**不一致 / 读不出来 ⇒ 不许控制**。
+        """
+        assert self._lms_executable is not None
+        try:
+            output = await self._runner((self._lms_executable, "server", "status"), 15.0)
+        except asyncio.CancelledError:
+            raise
+        except AdapterFailure:
+            raise
+        except (TimeoutError, OSError):
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            ) from None
+        # ⚠⚠⚠ **必须同时读 stdout 与 stderr**（§5.69 实测踩到）：
+        # `lms ps --json` / `lms ls --json` 写 **stdout**，
+        # 而 `lms server status` 这条**人话状态**写的是 **stderr** ⇒
+        # 只读 stdout ⇒ **永远解析不出端口** ⇒ fail-closed ⇒
+        # **所有落点变不可用**（实测：装上本地控制后 8 条 lm_studio 落点全变 unavailable）。
+        text = (output.stdout or "") + (output.stderr or "")
+        match = re.search(r"port\s+(\d+)", text)
+        if match is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            )
+        if int(match.group(1)) != self._base_port:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance does not match the backend base_url",
+                detail={},
+            )
+
     async def _run_control(self, arguments: tuple[str, ...], *, timeout: float) -> ProcessOutput:
-        argv = self._ssh_argv(arguments)
+        argv = self._control_argv(arguments)
+        if self._local_control:
+            # ⚠⚠⚠ **控制前必须核对「同一个实例」** —— `lms` CLI 控制的是本机默认实例,
+            # 而 base_url 可能指向另一个 ⇒ 控制错实例 = 加载/卸载错模型。
+            await self._verify_local_instance()
         if self._control_authorizer is not None:
             assert self._ssh_target is not None
             try:
@@ -437,8 +528,48 @@ class LmStudioAdapter:
                 )
         return tuple(rows), None
 
+    async def _native_model_ids(self) -> tuple[str, ...]:
+        """Every model LM Studio has downloaded, as the ids the routing table uses.
+
+        ``GET /api/v1/models`` is LM Studio's native surface: it lists every
+        downloaded model, and each entry's ``key`` is the identifier the routing
+        table references (``google/gemma-4-e2b``, ``qwen/qwen3-coder-next``, ...).
+        The OpenAI-compatible ``GET /v1/models`` lists only what is loaded, so on an
+        idle LM Studio it is empty and the backend looks model-less.
+
+        Returns () when the native surface is unavailable or unreadable; the caller
+        then keeps the previous (empty inventory) behaviour rather than failing.
+        """
+        try:
+            response = await self._send("GET", "/api/v1/models")
+            if not response.is_success:
+                return ()
+            document = _mapping(cast(object, response.json()))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return ()
+        raw_models = _list(document.get("models")) if document is not None else None
+        if raw_models is None:
+            return ()
+        ids: list[str] = []
+        for raw in raw_models:
+            item = _mapping(raw)
+            if item is None:
+                continue
+            key = item.get("key")
+            if not isinstance(key, str) or not key:
+                continue
+            try:
+                validate_model_token(key)
+            except ValueError:
+                continue
+            if key not in ids:
+                ids.append(key)
+        return tuple(ids)
+
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             return await self._probe_rest_state()
         try:
             output = await self._run_control(("ps", "--json"), timeout=15.0)
@@ -582,7 +713,12 @@ class LmStudioAdapter:
             # /api/v1/models、Ollama /api/ps、oMLX /v1/models/status), 能否生成交给真实流量的
             # placement 熔断器判定。合成推理探活会: 刷新 TTL 钉住模型; 思考型模型(Splash)在
             # token 预算内正文为空被误判; 模型忙时排队超时被误判 —— 并把后端上所有已加载模型一起判死。
-            generation_ready = True
+            # 2026-10-24: 必须同时要求 model_available —— CapabilitySnapshot 的校验器规定
+            # "generation_ready requires reachability, compatibility, and a model"。
+            # 无条件写 True 会让「库存为空」(LM Studio 空闲时 /v1/models 是空数组)直接抛
+            # ValidationError → probe 抛 → _fail_stale → 整个后端级 stale → 该后端所有落点全灭,
+            # 而且每 45 秒抛一次(实测 2026-10-05 起 3223 次)。这里要求有模型才谈得上「能生成」。
+            generation_ready = model_available
         elif probe_id is not None and probe_id in loaded_ids:
             # probe 用独立短超时: 探针模型可能正忙于长生成 (用户真实请求),
             # probe chat 会排在它后面。没有独立超时时, 排队会吃光 backend 级
@@ -667,6 +803,20 @@ class LmStudioAdapter:
                 continue
             if model_id not in http_ids:
                 http_ids.append(model_id)
+        # 2026-10-24: /v1/models 是 LM Studio 的 OpenAI 兼容面, 它只列「当前已加载」的模型;
+        # LM Studio 空闲时它是空数组 ⇒ 整个后端看起来一个模型都没有(实测 MBP: 磁盘上 96 个
+        # 已下载模型, /v1/models 的 data 是 [])。原生面 /api/v1/models 列的是「全部已下载」,
+        # 它的 key 就是路由表用的那个 id(例如 google/gemma-4-e2b)⇒ 让「已下载但未加载」的模型
+        # (JIT 可加载)不再凭空消失。
+        #
+        # ⚠⚠⚠ **必须是并集, 不能是「空才兜底」**（§5.69 实测踩到）：
+        # 「只列已加载」这个面**一旦非空**（实测: 加载了 minicpm-v-4.6 之后它就只列那 1 个）
+        # ⇒ **其余 7 个已下载模型会从库存里整体消失** ⇒ **它们的落点全部变 unavailable**
+        # ⇒ **后端级 stale 的另一种形态**：后端是 fresh 的, 但库存少了一大截。
+        # ⇒ ⇒ 原生面是**完整清单** ⇒ **恒取并集**。
+        for native_id in await self._native_model_ids():
+            if native_id not in http_ids:
+                http_ids.append(native_id)
 
         control_rows, control_error = await self._probe_control()
         control_by_model: dict[str, _ControlRow] = {}
@@ -1037,9 +1187,10 @@ class LmStudioAdapter:
         # 不拦截, 保留既有行为。
         if not self._loaded_cache_valid or model_id in self._known_loaded_ids:
             return None
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             # 无控制通道时无从受控加载; 放行是既有行为 (JIT 风险由 LM Studio
-            # 全局设置兜底), 不在本修复范围内改变无 SSH 后端的语义。
+            # 全局设置兜底), 不在本修复范围内改变无控制通道后端的语义。
+            # ⚠⚠⚠ §5.69: **本机 LM Studio 现在有本地控制通道了** ⇒ 不再走这条放行路径。
             return None
         result = await self.load_model(model_id)
         if result.status in (OperationStatus.SUCCEEDED, OperationStatus.UNCHANGED):
