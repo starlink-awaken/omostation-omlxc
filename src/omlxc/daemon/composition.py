@@ -311,10 +311,10 @@ class CatalogProbe:
         self._backends = {item.id: item for item in config.backends}
         self._backend_nodes = {item.id: item.node_id for item in config.backends}
         self._physical_memory_gb = (
-            local_physical_memory_gb if local_physical_memory_gb is not None else _local_physical_memory_gb()
+            local_physical_memory_gb
+            if local_physical_memory_gb is not None
+            else _test_memory_override_gb() or _local_physical_memory_gb()
         )
-        if (override := os.getenv("OMLXC_TEST_PHYSICAL_MEMORY_GB")) is not None and self._physical_memory_gb is not None:
-            self._physical_memory_gb = float(override)
         self._vram_estimator = VRAMBudgetEstimator()
         self._diagnostics = {item.id: NodeDiagnosticCode.NOT_PROBED for item in config.backends}
         self._high_water: dict[tuple[str, str], int] = {}
@@ -1369,6 +1369,17 @@ def _command_physical_memory_gb(command: list[str]) -> float | None:
     except (OSError, SubprocessError, ValueError):
         return None
     return total_bytes / 1024**3 if total_bytes > 0 else None
+
+
+def _test_memory_override_gb() -> float | None:
+    raw_value = os.environ.get("OMLXC_MEMORY_GUARD_CAPACITY_GB")
+    if raw_value is None:
+        return None
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 class ReconcileRuntime:
