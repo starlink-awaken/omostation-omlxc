@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import os
 import platform
 import subprocess
 import time
@@ -15,6 +16,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from subprocess import SubprocessError
 from typing import cast
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -1344,18 +1346,25 @@ async def _sample_memory_snapshot() -> MemorySnapshot | None:
 
 
 def _local_physical_memory_gb() -> float | None:
-    if platform.system() != "Darwin":
-        return None
+    system = platform.system()
+    if system == "Darwin":
+        return _command_physical_memory_gb(["sysctl", "-n", "hw.memsize"])
+    if system == "Linux":
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            page_count = os.sysconf("SC_PHYS_PAGES")
+        except (OSError, ValueError):
+            return None
+        total_bytes = page_size * page_count
+        return total_bytes / 1024**3 if total_bytes > 0 else None
+    return None
+
+
+def _command_physical_memory_gb(command: list[str]) -> float | None:
     try:
-        completed = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=True,
-        )
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=2, check=True)
         total_bytes = int(completed.stdout.strip())
-    except Exception:
+    except (OSError, SubprocessError, ValueError):
         return None
     return total_bytes / 1024**3 if total_bytes > 0 else None
 
