@@ -654,6 +654,14 @@ def create_app(
             request_id=request_id, query=body.query, documents=body.documents
         )
         if execution.error is not None:
+            _logger.warning(
+                "rerank failed (request id %s): code=%s reason=%s",
+                request_id,
+                execution.error.code.value,
+                execution.error.reason,
+            )
+            if execution.error.code is ExecutionErrorCode.UNSUPPORTED:
+                return _openai_error(request_id, 400, "unsupported_feature")
             raise ApiError(503, "E300", "local rerank failed")
         headers = _final_route_headers(
             request_id,

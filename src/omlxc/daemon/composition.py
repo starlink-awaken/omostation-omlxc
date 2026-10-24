@@ -69,6 +69,7 @@ from omlxc.dataplane import (
     RerankRequest,
     RouteTelemetryRecorder,
 )
+from omlxc.dataplane.reranker import RerankEngine
 from omlxc.domain import (
     BackendKind,
     HealthSnapshot,
@@ -123,6 +124,7 @@ from omlxc.storage import (
     StoredJob,
 )
 
+from .local_reranker import LocalReranker
 from .runtime import DaemonRuntime
 
 
@@ -1340,6 +1342,7 @@ def build_production_daemon(
         dict(adapters) if adapters is not None else build_configured_adapters(config, tailscale=configured_tailscale)
     )
     model_aliases = _model_aliases(config)
+    local_reranker = reranker if reranker is not None else LocalReranker(RerankEngine())
     catalog = SnapshotCatalog(snapshots or _configured_snapshots(config), now=clock)
     planner = RoutePlanner(default_policies())
     storage = StorageHandle(config, metric_flush_interval_seconds=metric_flush_interval_seconds)
@@ -1425,7 +1428,7 @@ def build_production_daemon(
         ),
         tuple(model.id for model in config.models),
         model_aliases=model_aliases,
-        reranker=reranker,
+        reranker=local_reranker,
     )
     events = ProductionEventService(storage, bus)
     resources = ResourceComponent(bus, bindings, probe if snapshots is None else None)
