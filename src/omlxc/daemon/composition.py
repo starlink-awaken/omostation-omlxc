@@ -313,6 +313,8 @@ class CatalogProbe:
         self._physical_memory_gb = (
             local_physical_memory_gb if local_physical_memory_gb is not None else _local_physical_memory_gb()
         )
+        if (override := os.getenv("OMLXC_TEST_PHYSICAL_MEMORY_GB")) is not None and self._physical_memory_gb is not None:
+            self._physical_memory_gb = float(override)
         self._vram_estimator = VRAMBudgetEstimator()
         self._diagnostics = {item.id: NodeDiagnosticCode.NOT_PROBED for item in config.backends}
         self._high_water: dict[tuple[str, str], int] = {}

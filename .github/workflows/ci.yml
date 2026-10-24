@@ -18,6 +18,8 @@ jobs:
         with:
           version: "0.12.3"
           python-version: "3.13"
+    env:
+      OMLXC_TEST_PHYSICAL_MEMORY_GB: "128"
       - run: uv sync --all-groups --locked
       - run: uv run pytest -q
       - run: uv run ruff check .
