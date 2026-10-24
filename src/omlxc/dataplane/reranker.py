@@ -32,6 +32,7 @@ class RerankEngine:
 
     _model: Any
     _tokenizer: Any
+    _mx: Any
 
     def __init__(self, model_path: str | None = None, *, allow_download: bool = False) -> None:
         self.device = resolve_device()
@@ -44,9 +45,11 @@ class RerankEngine:
         try:
             # mlx_lm is a host runtime dependency on real MLX-serving nodes, not a
             # package dependency for every client and CI runner.
+            import mlx.core as mx  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
             from mlx_lm.utils import load  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
 
             self._model, self._tokenizer = cast(tuple[Any, Any], load(path))
+            self._mx = mx
             self.backend = "mlx-local"
         except Exception as exc:
             self.fallback_reason = f"{type(exc).__name__}: {exc}"
@@ -72,7 +75,7 @@ class RerankEngine:
         for _ in range(3):  # median-of-3: steady-state, cold start excluded by warmup
             t0 = time.monotonic()
             if self.backend == "mlx-local":
-                import mlx.core as mx
+                mx = self._mx
 
                 features = self._tokenizer._tokenizer(  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
                     [(query, document) for document in docs],
@@ -90,8 +93,8 @@ class RerankEngine:
                         attention_mask,
                     ),
                 )
-                mx.eval(logits)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-                scores = logits.reshape(-1).astype(mx.float32).tolist()  # type: ignore[union-attr]  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+                mx.eval(logits)
+                scores = logits.reshape(-1).astype(mx.float32).tolist()
             else:
                 raise RuntimeError("rerank model unavailable")
             samples.append((time.monotonic() - t0) * 1000)
