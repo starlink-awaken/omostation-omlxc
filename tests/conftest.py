@@ -4,7 +4,9 @@ import os
 
 import pytest
 
-# Strip proxy environment variables to ensure test isolation from host network proxies
+# Strip proxy environment variables to ensure test isolation from host network proxies.
+# The memory-guard test override is removed here because it is not a valid
+# OMLXC_* configuration key; per-test isolation happens in the fixture below.
 for _key in [
     "ALL_PROXY",
     "all_proxy",
@@ -14,6 +16,7 @@ for _key in [
     "https_proxy",
     "NO_PROXY",
     "no_proxy",
+    "OMLXC_MEMORY_GUARD_CAPACITY_GB",
 ]:
     os.environ.pop(_key, None)
 

@@ -507,8 +507,7 @@ async def test_loaded_mixed_modalities_apply_generation_readiness_per_placement(
     embed_state = cast(list[dict[str, object]], _model(models.json(), "local/embed")["placement_states"])[0]
     chat_state = cast(list[dict[str, object]], _model(models.json(), "local/chat")["placement_states"])[0]
     vision_state = cast(list[dict[str, object]], _model(models.json(), "local/vision")["placement_states"])[0]
-    assert embed_state["available"] is True
-    assert embed_state["ready"] is True
+    assert embed_state["available"] is embed_state["ready"] is True
     assert chat_state["available"] is chat_state["ready"] is False
     assert vision_state["available"] is vision_state["ready"] is False
     assert embedding.status_code == 200
