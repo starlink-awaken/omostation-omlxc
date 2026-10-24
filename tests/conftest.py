@@ -5,8 +5,8 @@ import os
 import pytest
 
 # Strip proxy environment variables to ensure test isolation from host network proxies.
-# The memory-guard test override is removed here because it is not a valid
-# OMLXC_* configuration key; per-test isolation happens in the fixture below.
+# The memory-guard test override is removed here so tests cannot inherit a
+# stale override; per-test isolation happens in the fixture below.
 for _key in [
     "ALL_PROXY",
     "all_proxy",
@@ -47,7 +47,7 @@ def _isolate_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolate_memory_guard_override(pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OMLXC_MEMORY_GUARD_CAPACITY_GB", raising=False)
+    monkeypatch.delenv("OMLX_TEST_MEMORY_GUARD_CAPACITY_GB", raising=False)
     capacity = pytestconfig.getoption("memory_guard_capacity_gb")
     if capacity is not None:
-        monkeypatch.setenv("OMLXC_MEMORY_GUARD_CAPACITY_GB", str(capacity))
+        monkeypatch.setenv("OMLX_TEST_MEMORY_GUARD_CAPACITY_GB", str(capacity))

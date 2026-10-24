@@ -1372,7 +1372,7 @@ def _command_physical_memory_gb(command: list[str]) -> float | None:
 
 
 def _test_memory_override_gb() -> float | None:
-    raw_value = os.environ.get("OMLXC_MEMORY_GUARD_CAPACITY_GB")
+    raw_value = os.environ.get("OMLX_TEST_MEMORY_GUARD_CAPACITY_GB")
     if raw_value is None:
         return None
     try:
