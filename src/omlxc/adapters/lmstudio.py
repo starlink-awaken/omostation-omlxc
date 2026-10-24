@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import Field, field_validator
 
+from omlxc.domain.context import effective_context_limit
 from omlxc.domain.models import DomainModel
 from omlxc.domain.protocols import (
     AdapterCapability,
@@ -110,6 +111,17 @@ def _mapping(value: object) -> Mapping[str, object] | None:
     return {str(key): item for key, item in raw.items()}
 
 
+def _positive_int(value: object) -> int | None:
+    """一个**严格**的正整数 —— ``bool`` 是 ``int`` 的子类，必须显式排除。
+
+    ⚠ 形状不同的面给同一个语义字段时，这条判据是**唯一的防线**：
+    一个 ``True`` 被当成 1 会把上下文上限变成 1（模型直接拒绝一切请求）。
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
+
+
 def _list(value: object) -> list[object] | None:
     return cast(list[object], value) if isinstance(value, list) else None
 
@@ -133,6 +145,7 @@ class LmStudioAdapter:
         control_authorizer: ControlAuthorizer | None = None,
         process_output_limit: int = DEFAULT_PROCESS_OUTPUT_LIMIT,
         load_options: LmsLoadOptions | None = None,
+        placement_context_limits: Mapping[str, int] | None = None,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -183,6 +196,17 @@ class LmStudioAdapter:
         self._runner = process_runner or _DefaultProcessRunner(process_output_limit)
         self._control_authorizer = control_authorizer
         self._load_options = load_options or LmsLoadOptions()
+        # ⚠⚠⚠ **逐落点的上下文声明**（§5.70）：键是 LM Studio 的模型 key
+        # （= `placement.backend_model_id`，也就是 `lms load` 的那个实参），
+        # 值是 `placement.context_limit`（**人为的刻意收紧**）。
+        # ⚠ 为什么不用「后端级 min」：一个后端上有多条落点，各自有各的意图；
+        #   拿后端级 min 去压所有模型 ⇒ 小的把大的拖死（实测：一个后端上
+        #   8 条落点里最小声明 8194 ⇒ 全部模型都只能按 8194 加载）。
+        self._placement_context_limits = dict(placement_context_limits or {})
+        # ⚠ **实物真值**：原生面 `/api/v1/models` 的 `max_context_length`
+        #   （= 模型的物理上限）⇒ 声明超过物理上限时按物理上限算（fail-closed）。
+        #   每轮 inventory 刷新；原生面不可读时保持上一轮的已知值。
+        self._native_contexts: dict[str, int] = {}
         # discover() 每轮刷新的"当前已加载模型"缓存。chat/stream_chat 据此
         # 在发送前对未加载模型内联受控加载, 消灭"裸 HTTP 直接触发 LM Studio
         # JIT (按全局 defaultContextLength, 本机曾被观察到 262144) 打穿内存"
@@ -529,7 +553,12 @@ class LmStudioAdapter:
         return tuple(rows), None
 
     async def _native_model_ids(self) -> tuple[str, ...]:
-        """Every model LM Studio has downloaded, as the ids the routing table uses.
+        """Every model LM Studio has downloaded, as the ids the routing table uses."""
+        ids, _ = await self._native_inventory()
+        return ids
+
+    async def _native_inventory(self) -> tuple[tuple[str, ...], dict[str, int]]:
+        """LM Studio 原生面：已下载模型的 id 与**物理上下文上限**。
 
         ``GET /api/v1/models`` is LM Studio's native surface: it lists every
         downloaded model, and each entry's ``key`` is the identifier the routing
@@ -537,22 +566,33 @@ class LmStudioAdapter:
         The OpenAI-compatible ``GET /v1/models`` lists only what is loaded, so on an
         idle LM Studio it is empty and the backend looks model-less.
 
-        Returns () when the native surface is unavailable or unreadable; the caller
-        then keeps the previous (empty inventory) behaviour rather than failing.
+        ⚠⚠⚠ **两个面的键名不一样**（§5.70 实测, 2026-10-24 08:12 · MBP）：
+
+        - REST 原生面 ``/api/v1/models`` ⇒ ``max_context_length``（**snake_case**）
+        - CLI ``lms ls --json`` / ``lms ps --json`` ⇒ ``maxContextLength``（**camelCase**）
+
+        ⇒ **读错键名会得到「96 个模型全是 null」的假象** ⇒ 两种拼法都收。
+        （⚠ 这不是"防御性编程"，是**实测踩过的坑**：先按 camelCase 读了 REST
+        面，得出"原生面没有上下文信息"的错误结论。）
+
+        Returns ``((), {})`` when the native surface is unavailable or unreadable;
+        the caller then keeps the previous (empty inventory) behaviour rather than
+        failing.
         """
         try:
             response = await self._send("GET", "/api/v1/models")
             if not response.is_success:
-                return ()
+                return (), {}
             document = _mapping(cast(object, response.json()))
         except asyncio.CancelledError:
             raise
         except Exception:
-            return ()
+            return (), {}
         raw_models = _list(document.get("models")) if document is not None else None
         if raw_models is None:
-            return ()
+            return (), {}
         ids: list[str] = []
+        contexts: dict[str, int] = {}
         for raw in raw_models:
             item = _mapping(raw)
             if item is None:
@@ -566,7 +606,12 @@ class LmStudioAdapter:
                 continue
             if key not in ids:
                 ids.append(key)
-        return tuple(ids)
+            context_length = _positive_int(item.get("max_context_length"))
+            if context_length is None:
+                context_length = _positive_int(item.get("maxContextLength"))
+            if context_length is not None:
+                contexts[key] = context_length
+        return tuple(ids), contexts
 
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
         if not self._has_control_channel():
@@ -814,9 +859,16 @@ class LmStudioAdapter:
         # ⇒ **其余 7 个已下载模型会从库存里整体消失** ⇒ **它们的落点全部变 unavailable**
         # ⇒ **后端级 stale 的另一种形态**：后端是 fresh 的, 但库存少了一大截。
         # ⇒ ⇒ 原生面是**完整清单** ⇒ **恒取并集**。
-        for native_id in await self._native_model_ids():
+        native_ids, native_contexts = await self._native_inventory()
+        for native_id in native_ids:
             if native_id not in http_ids:
                 http_ids.append(native_id)
+        # ⚠⚠⚠ **实物真值入库**（§5.70）：原生面的 `max_context_length` 是
+        # **模型的物理上限** ⇒ 声明超过它时按它算（fail-closed）。
+        # ⚠ 原生面这一轮读不到时**保留上一轮的已知值** ⇒ 不因为一次抖动
+        #   把「已知物理上限」降级成「不知道」。
+        if native_contexts:
+            self._native_contexts.update(native_contexts)
 
         control_rows, control_error = await self._probe_control()
         control_by_model: dict[str, _ControlRow] = {}
@@ -945,9 +997,18 @@ class LmStudioAdapter:
                 idempotency_key=idempotency_key,
             )
 
-        arguments = (
-            self._load_arguments(model_id, options) if load else ("unload", control_by_model[model_id].identifier)
-        )
+        if load:
+            # ⚠⚠⚠ **逐模型算上下文**（§5.70）：`-c` 必须**永远有值**。
+            # 旧实现是「后端级 min(各落点声明, default=None)」⇒ 没人声明就
+            # **不带 -c** ⇒ LM Studio 回落到全局 defaultContextLength
+            # （实测 262144）⇒ **路由承诺 32768、实到 262144** ⇒
+            # 28GB+ 权重按最大上下文分配，直接打穿统一内存（2026-08-22 实测）。
+            arguments = self._load_arguments(
+                model_id,
+                options.model_copy(update={"context_length": self._effective_load_context(model_id)}),
+            )
+        else:
+            arguments = ("unload", control_by_model[model_id].identifier)
         try:
             await self._run_control(arguments, timeout=300.0)
             verified, verify_error, _, _ = await self._list_models_with_control()
@@ -971,6 +1032,31 @@ class LmStudioAdapter:
             changed=True,
             idempotency_key=idempotency_key,
         )
+
+    def _effective_load_context(self, model_id: str) -> int:
+        """这个模型**实际以多少上下文加载**（§5.70）。
+
+        规则见 :func:`omlxc.domain.context.effective_context_limit`：
+
+        - ``声明``（``placement.context_limit``）只能**收紧**；
+        - ``实物``（原生面 ``max_context_length``）是**硬上限**；
+        - 谁都没说 ⇒ 回落 **32768**（既有口径，catalog 侧同一个兜底）。
+
+        ⚠⚠⚠ **绝不能返回 None**：返回 None 等于「不带 ``-c``」
+        ⇒ LM Studio 按全局默认加载 ⇒ 实测 262144 ⇒ 内存打穿。
+        ⇒ **这条分支必须 fail-closed。**
+
+        ⚠ ``load_options.context_length`` 仍然作为**上限**生效
+        （直接构造适配器的调用方可以用它压住所有模型）⇒ 只能更严，不能更松。
+        """
+        context_length = effective_context_limit(
+            self._placement_context_limits.get(model_id),
+            self._native_contexts.get(model_id),
+        )
+        ceiling = self._load_options.context_length
+        if ceiling is not None:
+            context_length = min(context_length, ceiling)
+        return context_length
 
     @staticmethod
     def _load_arguments(model_id: str, options: LmsLoadOptions) -> tuple[str, ...]:
