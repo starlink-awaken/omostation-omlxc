@@ -1528,6 +1528,7 @@ def build_configured_adapter(
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
             generation_probe=backend.readiness_probe == "generation",
+            credential_ref=backend.credential_ref,
         )
     elif backend.kind is BackendKind.OLLAMA:
         adapter = OllamaAdapter(
