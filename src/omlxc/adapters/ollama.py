@@ -514,10 +514,9 @@ class OllamaAdapter:
             #   的 `/api/tags` 顶层**没有**这个键，四个模型全是 `None`）
             #   ⇒ ⇒ 承诺永远落回 32768 天花板，而**实到由那台机器的 VRAM 决定**。
             # ⚠ **顶层那个键保留作兜底**（别的 ollama 版本 / `/api/ps` 形状可能给顶层）。
-            details = item.get("details")
-            context = details.get("context_length") if isinstance(details, Mapping) else None
-            if context is None:
-                context = item.get("context_length")
+            details = _mapping(item.get("details"))
+            nested = details.get("context_length") if details is not None else None
+            context = nested if nested is not None else item.get("context_length")
             context_limit = (
                 context if isinstance(context, int) and not isinstance(context, bool) and context > 0 else None
             )
