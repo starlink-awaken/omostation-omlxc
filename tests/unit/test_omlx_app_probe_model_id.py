@@ -75,6 +75,18 @@ class TestProbeModelIdForwarding:
         assert captured["probe_model_id"] == "mythos-fast"
         assert captured["base_url"] == "http://127.0.0.1:8000"
 
+    def test_omlx_app_forwards_credential_ref(self, tmp_path: Path, captured: dict[str, object]) -> None:
+        backend = BackendConfig(
+            id="omlx-app",
+            node_id="local",
+            kind=BackendKind.OMLX_APP,
+            base_url="http://127.0.0.1:8000",
+            credential_ref="keychain://omlx-api-key/service-account",
+        )
+        composition_module.build_configured_adapters(_config(tmp_path, backend))
+
+        assert captured["credential_ref"] == "keychain://omlx-api-key/service-account"
+
     def test_omlx_app_probe_model_id_defaults_to_none(self, tmp_path: Path, captured: dict[str, object]) -> None:
         """No configured probe target still passes explicitly (None), rather
         than silently omitting the kwarg -- callers must not have to guess

@@ -11,6 +11,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from omlxc.adapters.omlx_admin_sync import KeychainResolutionError
+from omlxc.adapters.security import AdapterFailure
 from omlxc.domain.protocols import (
     AdapterErrorCode,
     ChatMessage,
@@ -841,3 +843,77 @@ def test_adapter_rejects_base_url_userinfo_without_echoing_credentials() -> None
         )
 
     assert "synthetic-password" not in str(captured.value)
+
+
+def test_adapter_rejects_credential_ref_and_injected_client() -> None:
+    from omlxc.adapters.omlx_app import OmlxAppAdapter
+
+    client = httpx.AsyncClient(trust_env=False)
+    try:
+        with pytest.raises(ValueError, match="credential_ref and client"):
+            OmlxAppAdapter(
+                backend_id="mbp-omlx",
+                base_url="http://omlx.invalid",
+                credential_ref="keychain://service/account",
+                client=client,
+            )
+    finally:
+        anyio.run(client.aclose)
+
+
+def test_adapter_rejects_unresolvable_credential_ref_without_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omlxc.adapters.omlx_app import OmlxAppAdapter
+
+    monkeypatch.setattr(
+        "omlxc.adapters.omlx_app.resolve_keychain_reference",
+        lambda _reference: (_ for _ in ()).throw(KeychainResolutionError("Keychain item not found")),
+    )
+
+    with pytest.raises(AdapterFailure) as captured:
+        OmlxAppAdapter(
+            backend_id="mbp-omlx",
+            base_url="http://omlx.invalid",
+            credential_ref="keychain://omlx-api-key/missing",
+        )
+
+    assert "Keychain item not found" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_discovery_sends_credential_ref_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omlxc.adapters.omlx_app import OmlxAppAdapter
+
+    monkeypatch.setattr(
+        "omlxc.adapters.omlx_app.resolve_keychain_reference",
+        lambda _reference: "secret-value",
+    )
+
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/status":
+            return httpx.Response(200, json={"status": "ok", "version": "0.7.2"})
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "model-a", "loaded": False}]})
+        if request.url.path == "/v1/models/status":
+            return httpx.Response(200, json={"models": [{"id": "model-a", "loaded": True}]})
+        raise AssertionError(request.url.path)
+
+    adapter = OmlxAppAdapter(
+        backend_id="mbp-omlx",
+        base_url="http://omlx.invalid",
+        credential_ref="keychain://omlx-api-key/xiamingxing",
+        generation_probe=False,
+        transport=httpx.MockTransport(handler),
+    )
+
+    snapshot = await adapter.discover()  # type: ignore[attr-defined]
+
+    assert snapshot.compatible is True
+    assert snapshot.model_available is True
+    assert all(request.headers["Authorization"] == "Bearer secret-value" for request in requests)
