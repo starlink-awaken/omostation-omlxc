@@ -20,7 +20,7 @@ async def test_schema_migrates_once_and_enforces_private_wal_pragmas(tmp_path: P
     database = tmp_path / "private" / "state.db"
     SQLiteRuntimeStore = _storage().SQLiteRuntimeStore
     store = await SQLiteRuntimeStore.open(database)
-    assert await store.schema_version() == 4
+    assert await store.schema_version() == 5
     assert await store.pragma_state() == {
         "busy_timeout": 5000,
         "foreign_keys": 1,
@@ -29,7 +29,7 @@ async def test_schema_migrates_once_and_enforces_private_wal_pragmas(tmp_path: P
     await store.close()
 
     reopened = await SQLiteRuntimeStore.open(database)
-    assert await reopened.schema_version() == 4
+    assert await reopened.schema_version() == 5
     await reopened.close()
     assert os.stat(database.parent).st_mode & 0o077 == 0
     assert os.stat(database).st_mode & 0o077 == 0
@@ -68,7 +68,7 @@ async def test_v1_metrics_migrate_to_v2_with_nullable_typed_terminal_fields(
 
     storage = _storage()
     store = await storage.SQLiteRuntimeStore.open(database)
-    assert await store.schema_version() == 4
+    assert await store.schema_version() == 5
     metrics = await store.list_metrics(after_sequence=0)
     assert metrics[0].error_code is None
     assert metrics[0].phase is None
@@ -93,7 +93,7 @@ async def test_v2_schema_migrates_to_inventory_high_water(tmp_path: Path) -> Non
 
     storage = _storage()
     store = await storage.SQLiteRuntimeStore.open(database)
-    assert await store.schema_version() == 4
+    assert await store.schema_version() == 5
     observed = datetime(2026, 8, 15, 4, tzinfo=UTC)
     await store.save_inventory_high_water(storage.InventoryHighWater("node", "backend", 10, observed))
     assert await store.list_inventory_high_water() == (storage.InventoryHighWater("node", "backend", 10, observed),)
@@ -117,7 +117,7 @@ async def test_v3_schema_migrates_to_benchmark_runs(tmp_path: Path) -> None:
 
     storage = _storage()
     store = await storage.SQLiteRuntimeStore.open(database)
-    assert await store.schema_version() == 4
+    assert await store.schema_version() == 5
     assert await store.list_benchmark_runs() == []
     await store.close()
 

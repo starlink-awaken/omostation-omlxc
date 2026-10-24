@@ -32,6 +32,7 @@ class RoutePlanner:
                 {},
                 "route_failed=invalid_snapshot; duplicate_placement_id=true",
                 policy.config_version,
+                request.model_id,
             )
         accepted: list[PlacementSnapshot] = []
         rejected: dict[str, str] = {}
@@ -70,6 +71,7 @@ class RoutePlanner:
                 )
                 return RouteDecision(
                     request_id=request.request_id,
+                    requested_model=request.model_id,
                     selected_placement_id=selected_emergency,
                     candidates=candidate_ids,
                     candidate_scores=scores,
@@ -91,6 +93,7 @@ class RoutePlanner:
                 rejected,
                 f"route_failed={code.value}; rejected={len(rejected)}",
                 policy.config_version,
+                request.model_id,
             )
 
         defaults_used: set[str] = set()
@@ -106,6 +109,7 @@ class RoutePlanner:
         )
         return RouteDecision(
             request_id=request.request_id,
+            requested_model=request.model_id,
             selected_placement_id=selected,
             candidates=candidate_ids,
             candidate_scores=scores,

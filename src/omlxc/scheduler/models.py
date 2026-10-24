@@ -45,6 +45,7 @@ class RouteFailure:
     rejected: Mapping[str, str]
     explanation: str
     config_version: str
+    requested_model: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "rejected", MappingProxyType(dict(sorted(self.rejected.items()))))
