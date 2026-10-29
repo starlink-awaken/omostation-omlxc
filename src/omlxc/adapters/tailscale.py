@@ -526,8 +526,18 @@ def _parse_peer(row: Mapping[object, object]) -> _Peer:
         or not raw_ips
         or not isinstance(online, bool)
         or not isinstance(os_name, str)
-        or not os_name
     ):
+        # ⚠⚠⚠ **OS 允许为空**（§5.71 实测，measured_from 2026-10-24 09:05 · MBP）：
+        # tailscale 对**认不出操作系统**的 peer 报 ``OS: ""``
+        # （实测那条 peer 叫 ``muse``，其余 4 条都有 ``macOS``/``windows``）。
+        # ⇒ 旧判据 ``or not os_name`` 会把**整份快照**判成 INVALID_SNAPSHOT
+        # ⇒ ⇒ **一条 peer 加入，全舰队授权失守**
+        # （实测：跨机 11 条落点全部 stale，日志累计 25503 次
+        #   ``Tailscale status has an invalid shape``，首次 2026-10-04 15:37）。
+        # ⇒ ⚠ **OS 不参与身份匹配**（`_full_match`/`_partial_match` 都不看它，
+        #   它只是快照里的一个信息字段）⇒ **容忍空串是零授权语义变化**。
+        # ⇒ ⚠ **类型检查必须留着**：``OS: False`` 仍然判红
+        #   （bool 是 int 的子类，误当成字符串会污染 OS 语义）。
         raise TailscaleFailure(TailscaleErrorCode.INVALID_SNAPSHOT)
     try:
         normalized_dns = _normalize_dns(dns_name)

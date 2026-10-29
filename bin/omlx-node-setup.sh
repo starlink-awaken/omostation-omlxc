@@ -6,11 +6,11 @@
 #
 # 前提：本机已装好 omlx（omlx 在 PATH）、Tailscale 已登录。
 # 用法：  OMLX_ROOT=/你的/omlx ./omlx-node-setup.sh
-#         （OMLX_ROOT 不设则用默认 /Volumes/Model/omlx）
+#         （OMLX_ROOT 不设则用默认 ~/omlx, 内置盘 — 2026-10-10 迁出外置卷后）
 
 set -u
 export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
-ROOT="${OMLX_ROOT:-/Volumes/Model/omlx}"
+ROOT="${OMLX_ROOT:-$HOME/omlx}"
 export OMLX_ROOT="$ROOT"
 
 TS=$(tailscale ip -4 2>/dev/null | head -1)

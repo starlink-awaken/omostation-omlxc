@@ -1,7 +1,7 @@
 #!/opt/homebrew/bin/python3
 """
 omlx — 本地 MLX 模型统一命令行工具 (体系化管理 mlx_lm.server 服务)
-单一数据源: $OMLX_ROOT/conf/models.json   (默认 /Volumes/Model/omlx)
+单一数据源: $OMLX_ROOT/conf/models.json   (默认 ~/omlx, 内置盘)
 
 常用:
   omlxc list                 列出所有配置 + 运行状态
@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 
 # 2026-08-10 迁出外置卷: launchd 服务受 macOS TCC 限制无法**执行**外置卷上的
 # 二进制(Operation not permitted), 导致 aetherforge 门面调不到 omlx。
-# 控制面(bin/conf/run/logs/models-active)迁到 $HOME; 模型权重仍在
-# /Volumes/Model/LMStudio, 未动。仍可用 OMLX_ROOT 覆盖。
+# 控制面(bin/conf/run/logs/models-active)迁到 $HOME; 2026-10-11 (BET-Y2Q4-T10-242)
+# 模型权重并轨 /Volumes/SHAREDMODEL/lmstudio (Model 1T 转 TM 专用)。仍可用 OMLX_ROOT 覆盖。
 OMLX_ROOT = os.environ.get("OMLX_ROOT", os.path.expanduser("~/omlx"))
 CONF = os.path.join(OMLX_ROOT, "conf", "models.json")
 SELF = [sys.executable, os.path.realpath(__file__)]   # 自调用用绝对路径, 与命令名(omlxc)解耦
@@ -1385,7 +1385,7 @@ def cmd_cluster(conf, args):
     print(dim("路由顺序: MBP oMLX App → LM Link 池 → Ollama；离线节点由网关跳过"))
 
 def cmd_models(conf, args):
-    base="/Volumes/Model/LMStudio"
+    base="/Volumes/SHAREDMODEL/lmstudio"
     print(dim(f"扫描 {base} 下的 MLX 模型...  ✅=已接入  ○=未接入\n"))
     linked=_linked_realpaths(conf); seen=set(); nl=0; nu=0
     for st in sorted(glob.glob(base+"/*/*/*.safetensors")):
@@ -2349,7 +2349,7 @@ def _linked_realpaths(conf):
                 if os.path.exists(rp): out.add(rp)
     return out
 
-def _scan_disk_mlx(base="/Volumes/Model/LMStudio", extra_roots=None):
+def _scan_disk_mlx(base="/Volumes/SHAREDMODEL/lmstudio", extra_roots=None):
     seen = []
     results = []
 
@@ -2465,7 +2465,7 @@ def _next_free_port(conf, used):
     die("无空闲端口(8086-8099/8189-8199 都占了)")
 
 def cmd_link(conf, args):
-    base = getattr(args, "source", None) or "/Volumes/Model/LMStudio"
+    base = getattr(args, "source", None) or "/Volumes/SHAREDMODEL/lmstudio"
     linked = _linked_realpaths(conf)
     all_un = [(d, sub) for d, sub in _scan_disk_mlx(base) if os.path.realpath(d) not in linked]
     audio = [(d, sub) for d, sub in all_un if _is_audio(os.path.basename(d))]

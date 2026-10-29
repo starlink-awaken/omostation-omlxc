@@ -11,7 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # CR-CI-RUNNER-COST: 唯一的 darwin 分支 (dataplane/thermal.py::_probe_darwin) 已由
+        # tests/unit/test_thermal_guard.py::test_probe_darwin_parsing 用 mock 覆盖 (不依赖真机),
+        # macOS 腿 (10x 单价) 零增量覆盖 —— 删。
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -19,7 +22,7 @@ jobs:
           version: "0.12.3"
           python-version: "3.13"
       - run: uv sync --all-groups --locked
-      - run: uv run pytest -q
+      - run: uv run pytest -q --memory-guard-capacity-gb=128
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv build

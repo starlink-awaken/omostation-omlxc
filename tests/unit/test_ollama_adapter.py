@@ -226,12 +226,18 @@ async def test_chat_payload_is_native_minimal_with_thinking_disabled() -> None:
 
     assert result.success is True
     assert result.content == "visible"
+    # ⚠⚠⚠ **§5.73：载荷里必须带 `num_ctx`** ——
+    #   旧断言把「不传 num_ctx」写成了契约，而**那正是缺陷本身**：
+    #   不传 ⇒ ollama 用**它自己算的默认值** ⇒ 实到与承诺脱钩，
+    #   且**那台机器 VRAM 越大偏离越远**（实测 MBP 262144 / mini 4096）。
+    # ⇒ 「最小原生载荷」= **不传 ollxc 自己不传就行的字段**；
+    #   `num_ctx` 是**必须显式下发**的字段，不属于「多余」。
     assert captured == {
         "model": "library/model:latest",
         "messages": [{"role": "user", "content": "hello"}],
         "stream": False,
         "think": False,
-        "options": {"num_predict": 7, "temperature": 0.25},
+        "options": {"num_predict": 7, "temperature": 0.25, "num_ctx": 32768},
         "keep_alive": 42,
     }
     assert "secret" not in result.model_dump_json()
@@ -426,9 +432,23 @@ async def test_load_and_unload_use_generate_and_fresh_inventory_verification() -
 
     assert loaded.status is OperationStatus.SUCCEEDED
     assert unloaded.status is OperationStatus.SUCCEEDED
+    # ⚠⚠⚠ **§5.73：加载/卸载也必须带 `num_ctx`** ——
+    #   加载出来的模型**以这个窗口服务**；不带 ⇒ 回落 ollama 自己的默认值。
     assert payloads == [
-        {"model": "library/model:latest", "prompt": "", "stream": False, "keep_alive": 90},
-        {"model": "library/model:latest", "prompt": "", "stream": False, "keep_alive": 0},
+        {
+            "model": "library/model:latest",
+            "prompt": "",
+            "stream": False,
+            "keep_alive": 90,
+            "options": {"num_ctx": 32768},
+        },
+        {
+            "model": "library/model:latest",
+            "prompt": "",
+            "stream": False,
+            "keep_alive": 0,
+            "options": {"num_ctx": 32768},
+        },
     ]
 
 
@@ -697,3 +717,209 @@ def test_ollama_adapter_satisfies_canonical_protocol_and_safe_repr() -> None:
 
     assert isinstance(adapter, BackendAdapter)
     assert "ollama.invalid" not in repr(adapter)
+
+
+# ══════════════════════════════════════════════════════════════════
+# §5.73 「承诺 = 实到」在 ollama 路径上
+#
+# ⚠⚠⚠ **为什么必须有这些测试**：§5.70 把「承诺」与「实到」并到了
+#   `domain/context.py` 的同一个函数上 —— 但**只覆盖了 LM Studio 一条路径**。
+#   ollama 这条路上：
+#   ① 适配器读的原生上限**差一层**（ollama 放在 `details.context_length`，
+#      适配器读的是顶层）⇒ **原生上限永远是 `None`**；
+#   ② 载荷里**从不带 `num_ctx`** ⇒ **实到由那台机器的 VRAM 决定**
+#      （实测：MBP `112.0 GiB ⇒ 262144`；mini `17.8 GiB ⇒ 4096`）
+#      ⇒ **同一个承诺（32768）在两台机器上是两个相反的实到**。
+#
+# ⇒ 下面每一条都在钉「**承诺 = 实到**」这个契约。
+# ══════════════════════════════════════════════════════════════════
+
+
+def _tags_payload(*, details_context: int | None = None, top_level_context: int | None = None) -> dict:
+    item: dict[str, object] = {"name": "library/model:latest", "model": "library/model:latest"}
+    if details_context is not None:
+        item["details"] = {"context_length": details_context}
+    if top_level_context is not None:
+        item["context_length"] = top_level_context
+    return {"models": [item]}
+
+
+def _inventory_handler(
+    captured: list[dict],
+    *,
+    details_context: int | None = None,
+    top_level_context: int | None = None,
+) -> Callable[[httpx.Request], httpx.Response]:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/tags":
+            return httpx.Response(
+                200,
+                json=_tags_payload(
+                    details_context=details_context, top_level_context=top_level_context
+                ),
+            )
+        if path == "/api/ps":
+            return httpx.Response(200, json={"models": []})
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "message": {"content": "visible"},
+                "done": True,
+                "done_reason": "stop",
+                "prompt_eval_count": 4,
+                "eval_count": 2,
+            },
+        )
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_native_context_is_read_from_details() -> None:
+    """⚠ **差一层**：ollama 把 `context_length` 放在 `details` 里。
+
+    旧实现读顶层 ⇒ **原生上限永远是 `None`** ⇒ 承诺永远落回 32768 天花板。
+    """
+    captured: list[dict] = []
+    adapter = _adapter(
+        _inventory_handler(captured, details_context=262144, top_level_context=999)
+    )
+    await adapter.list_models()
+    assert adapter._native_contexts["library/model:latest"] == 262144
+
+
+@pytest.mark.asyncio
+async def test_the_top_level_context_length_is_still_accepted() -> None:
+    """顶层那个键**保留作兜底**（别的 ollama 版本 / `/api/ps` 形状可能给顶层）。"""
+    captured: list[dict] = []
+    adapter = _adapter(_inventory_handler(captured, top_level_context=40960))
+    await adapter.list_models()
+    assert adapter._native_contexts["library/model:latest"] == 40960
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_is_always_present_and_fail_closed() -> None:
+    """⚠⚠⚠ **绝不能没有 `num_ctx`** ——
+    没有 ⇒ ollama 用**它自己算的默认值** ⇒ 实到与承诺脱钩。
+    """
+    captured: list[dict] = []
+    adapter = _adapter(_inventory_handler(captured))
+    await adapter.list_models()
+    result = await adapter.chat(_request())
+    assert result.success is True
+    options = captured[0]["options"]
+    # 没有任何声明、也没有原生上限 ⇒ 回落既有口径 32768（**不是 None**）
+    assert options["num_ctx"] == 32768
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_follows_the_placement_declaration() -> None:
+    """**声明只能收紧** ⇒ 声明更小 ⇒ `num_ctx` 更小。"""
+    captured: list[dict] = []
+    adapter = _adapter(
+        _inventory_handler(captured, details_context=262144),
+        placement_context_limits={"library/model:latest": 8192},
+    )
+    await adapter.list_models()
+    await adapter.chat(_request())
+    assert captured[0]["options"]["num_ctx"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_is_capped_by_the_native_limit() -> None:
+    """**实物是硬上限** ⇒ 声明比物理上限还大 ⇒ 按物理上限算（fail-closed）。"""
+    captured: list[dict] = []
+    adapter = _adapter(
+        _inventory_handler(captured, details_context=4096),
+        placement_context_limits={"library/model:latest": 262144},
+    )
+    await adapter.list_models()
+    await adapter.chat(_request())
+    assert captured[0]["options"]["num_ctx"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_num_ctx_equals_the_promise_computed_by_the_shared_function() -> None:
+    """⚠⚠⚠ **承诺 = 实到**：下发值必须**逐位等于** catalog 侧那个函数的输出。
+
+    ⇒ 这是「同一个函数算出承诺与实到」这条纪律的**可执行**版本。
+    """
+    from omlxc.domain.context import effective_context_limit
+
+    captured: list[dict] = []
+    adapter = _adapter(
+        _inventory_handler(captured, details_context=262144),
+        placement_context_limits={"library/model:latest": 32768},
+    )
+    await adapter.list_models()
+    await adapter.chat(_request())
+    expected = effective_context_limit(32768, 262144)
+    assert captured[0]["options"]["num_ctx"] == expected
+
+
+@pytest.mark.asyncio
+async def test_load_and_unload_also_carry_the_context() -> None:
+    """**加载出来的模型必须以承诺的窗口服务** ⇒ 加载/卸载也要带 `num_ctx`。"""
+    captured: list[dict] = []
+    adapter = _adapter(
+        _inventory_handler(captured, details_context=262144),
+        placement_context_limits={"library/model:latest": 16384},
+    )
+    await adapter.list_models()
+    await adapter.load_model("library/model:latest", idempotency_key="load")
+    loads = [p for p in captured if p.get("prompt") == ""]
+    assert loads, "没有捕获到加载载荷"
+    for payload in loads:
+        assert payload["options"]["num_ctx"] == 16384
+
+
+# ── 接线层：**配置 → 适配器**（§5.73）────────────────────────────
+#
+# ⚠⚠⚠ **为什么必须有这一层**：上面那些测试都是**直接构造适配器**的
+#   ⇒ ⇒ **「逐落点声明有没有真的从配置走到适配器」根本没被测过**
+#   ⇒ ⇒ 变异验证 M8（composition 不传 `placement_context_limits`）**抓不住**
+#   ⇒ ⇒ 「声明失效」这种病可以悄悄存在。
+#   ⇒ **接线层必须自己有一条测试。**
+
+
+def test_composition_hands_the_declared_context_to_the_ollama_adapter() -> None:
+    """⚠⚠⚠ **接线必须被测** —— 否则「声明到不了适配器」没人发现。
+
+    ⇒ 不给 ⇒ 适配器只能回落 32768，而**实到由那台机器的 VRAM 决定**
+    （实测：MBP 262144 / mini 4096）⇒ **承诺与实到脱钩**。
+    """
+    from omlxc.config.schema import BackendConfig, BackendKind
+    from omlxc.daemon.composition import build_configured_adapter
+
+    backend = BackendConfig(
+        id="ollama-test",
+        node_id="node",
+        kind=BackendKind.OLLAMA,
+        base_url="http://127.0.0.1:11434",
+    )
+    adapter = build_configured_adapter(
+        backend,
+        placement_context_limits={"library/model:latest": 8192},
+    )
+    assert adapter._placement_context_limits == {"library/model:latest": 8192}
+    assert adapter._effective_context("library/model:latest") == 8192
+
+
+def test_composition_gives_the_lm_studio_adapter_the_same_declarations() -> None:
+    """⚠ **两条路径的接线必须一致** —— 不然又是一条「只修了一条」的缝。"""
+    from omlxc.config.schema import BackendConfig, BackendKind
+    from omlxc.daemon.composition import build_configured_adapter
+
+    backend = BackendConfig(
+        id="lm-test",
+        node_id="node",
+        kind=BackendKind.LM_STUDIO,
+        base_url="http://127.0.0.1:1234",
+    )
+    adapter = build_configured_adapter(
+        backend,
+        placement_context_limits={"model-a": 8194},
+    )
+    assert adapter._placement_context_limits == {"model-a": 8194}

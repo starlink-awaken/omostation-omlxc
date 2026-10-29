@@ -7,6 +7,8 @@ import hashlib
 import ipaddress
 import json
 import logging
+import os
+import platform
 import subprocess
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -14,6 +16,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from subprocess import SubprocessError
 from typing import cast
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -68,7 +71,9 @@ from omlxc.dataplane import (
     RerankExecution,
     RerankRequest,
     RouteTelemetryRecorder,
+    VRAMBudgetEstimator,
 )
+from omlxc.dataplane.reranker import RerankEngine
 from omlxc.domain import (
     BackendKind,
     HealthSnapshot,
@@ -85,6 +90,7 @@ from omlxc.domain import (
     RouteDecision,
     RouteRequest,
 )
+from omlxc.domain.context import DEFAULT_CONTEXT_LIMIT
 from omlxc.domain.protocols import (
     AdapterCapability,
     AdapterErrorCode,
@@ -123,6 +129,7 @@ from omlxc.storage import (
     StoredJob,
 )
 
+from .local_reranker import LocalReranker
 from .runtime import DaemonRuntime
 
 
@@ -277,6 +284,7 @@ class CatalogProbe:
         tailscale: TailscaleAdapter | None,
         now: Callable[[], datetime],
         storage: StorageHandle | None = None,
+        local_physical_memory_gb: float | None = None,
     ) -> None:
         self._config = config
         self._adapters = dict(adapters)
@@ -302,6 +310,12 @@ class CatalogProbe:
         self._nodes = {item.id: item for item in config.nodes}
         self._backends = {item.id: item for item in config.backends}
         self._backend_nodes = {item.id: item.node_id for item in config.backends}
+        self._physical_memory_gb = (
+            local_physical_memory_gb
+            if local_physical_memory_gb is not None
+            else _test_memory_override_gb() or _local_physical_memory_gb()
+        )
+        self._vram_estimator = VRAMBudgetEstimator()
         self._diagnostics = {item.id: NodeDiagnosticCode.NOT_PROBED for item in config.backends}
         self._high_water: dict[tuple[str, str], int] = {}
         self._drops: dict[tuple[str, str], tuple[int, int]] = {}
@@ -500,7 +514,7 @@ class CatalogProbe:
                     if model is not None and model.context_limit is not None
                     else (placement.context_limit if placement.context_limit is not None else 32768)
                 ),
-                memory_admitted=self._memory_admitted(placement),
+                memory_admitted=self._memory_admitted(placement, inventory=inventory),
                 loaded=loaded,
                 available_concurrency=1 if loadable else 0,
                 local=local,
@@ -528,19 +542,54 @@ class CatalogProbe:
             for code, count in sorted(counts.items(), key=lambda item: item[0].value)
         )
 
-    def _memory_admitted(self, placement: PlacementConfig) -> bool | None:
-        memory_gb = placement.memory_gb
-        if memory_gb is None:
-            configured_model = self._models.get(placement.model_id)
-            if configured_model is not None and configured_model.size_gb is not None:
-                memory_gb = configured_model.size_gb
-        if memory_gb is None:
-            return None
+    def _memory_admitted(
+        self,
+        placement: PlacementConfig,
+        *,
+        inventory: Mapping[str, ModelRuntime],
+    ) -> bool | None:
+        backend = self._backends.get(placement.backend_id)
         node_id = self._backend_nodes.get(placement.backend_id)
-        if node_id is None:
+        if backend is None or node_id is None:
             return None
-        available = self._nodes[node_id].memory_gb
-        return None if available is None else memory_gb <= available
+        budget_gb = self._physical_memory_gb if is_loopback_url(backend.base_url) else self._nodes[node_id].memory_gb
+        if budget_gb is None:
+            return None
+
+        requirements = self._backend_memory_requirements(backend.id)
+        if requirements is None:
+            return None
+        required_gb = 0.0
+        for backend_model_id, requirement_gb in requirements.items():
+            runtime = inventory.get(backend_model_id)
+            if runtime is not None and runtime.state is ModelRuntimeState.LOADED:
+                required_gb += requirement_gb
+            elif backend_model_id == placement.backend_model_id:
+                required_gb += requirement_gb
+
+        return required_gb <= budget_gb
+
+    def _backend_memory_requirements(self, backend_id: str) -> dict[str, float] | None:
+        requirements: dict[str, float] = {}
+        for candidate in self._config.placements:
+            if candidate.backend_id != backend_id:
+                continue
+            memory_gb = self._placement_memory_gb(candidate)
+            if memory_gb is None:
+                return None
+            context_limit = candidate.context_limit if candidate.context_limit is not None else DEFAULT_CONTEXT_LIMIT
+            memory_gb += self._vram_estimator.estimate_kv_cache_mb(
+                candidate.model_id,
+                context_tokens=context_limit,
+            ) / 1024.0
+            requirements[candidate.backend_model_id] = max(requirements.get(candidate.backend_model_id, 0.0), memory_gb)
+        return requirements
+
+    def _placement_memory_gb(self, placement: PlacementConfig) -> float | None:
+        if placement.memory_gb is not None:
+            return placement.memory_gb
+        configured_model = self._models.get(placement.model_id)
+        return configured_model.size_gb if configured_model is not None else None
 
     def _fail_authorization(self, backend_id: str) -> None:
         for snapshot in self._catalog.get():
@@ -1298,6 +1347,41 @@ async def _sample_memory_snapshot() -> MemorySnapshot | None:
     )
 
 
+def _local_physical_memory_gb() -> float | None:
+    system = platform.system()
+    if system == "Darwin":
+        return _command_physical_memory_gb(["sysctl", "-n", "hw.memsize"])
+    if system == "Linux":
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            page_count = os.sysconf("SC_PHYS_PAGES")
+        except (OSError, ValueError):
+            return None
+        total_bytes = page_size * page_count
+        return total_bytes / 1024**3 if total_bytes > 0 else None
+    return None
+
+
+def _command_physical_memory_gb(command: list[str]) -> float | None:
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=2, check=True)
+        total_bytes = int(completed.stdout.strip())
+    except (OSError, SubprocessError, ValueError):
+        return None
+    return total_bytes / 1024**3 if total_bytes > 0 else None
+
+
+def _test_memory_override_gb() -> float | None:
+    raw_value = os.environ.get("OMLX_TEST_MEMORY_GUARD_CAPACITY_GB")
+    if raw_value is None:
+        return None
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 class ReconcileRuntime:
     """Adapts ReconcileLoop's start/stop to the RuntimeComponent start/close contract."""
 
@@ -1332,6 +1416,7 @@ def build_production_daemon(
     metric_flush_interval_seconds: float = 0.25,
     config_path: Path | None = None,
     memory_probe: Callable[[], Awaitable[MemorySnapshot | None]] | None = None,
+    local_physical_memory_gb: float | None = None,
 ) -> ProductionComposition:
     """Build the real daemon graph without starting network or model operations."""
     clock = now or (lambda: datetime.now(UTC))
@@ -1340,6 +1425,7 @@ def build_production_daemon(
         dict(adapters) if adapters is not None else build_configured_adapters(config, tailscale=configured_tailscale)
     )
     model_aliases = _model_aliases(config)
+    local_reranker = reranker if reranker is not None else LocalReranker(RerankEngine())
     catalog = SnapshotCatalog(snapshots or _configured_snapshots(config), now=clock)
     planner = RoutePlanner(default_policies())
     storage = StorageHandle(config, metric_flush_interval_seconds=metric_flush_interval_seconds)
@@ -1351,6 +1437,7 @@ def build_production_daemon(
         tailscale=configured_tailscale,
         now=clock,
         storage=storage,
+        local_physical_memory_gb=local_physical_memory_gb,
     )
     target_factory = PlacementTargetFactory(config)
     placement_operator = ProductionPlacementOperator(
@@ -1425,7 +1512,7 @@ def build_production_daemon(
         ),
         tuple(model.id for model in config.models),
         model_aliases=model_aliases,
-        reranker=reranker,
+        reranker=local_reranker,
     )
     events = ProductionEventService(storage, bus)
     resources = ResourceComponent(bus, bindings, probe if snapshots is None else None)
@@ -1458,20 +1545,24 @@ def build_configured_adapters(
     # 合法的 lms --ttl 值 (LmsLoadOptions.ttl_seconds 要求 ge=1)。
     default_ttl_seconds = config.policies.idle_ttl_seconds if config.policies.idle_ttl_seconds else None
     for backend in config.backends:
-        # LM Studio 系后端: 数据面 ensure_loaded 触发的 lms load 必须显式带上
-        # 上下文限制 (取该 backend 全部 placement 的最小 context_limit)。
-        # 否则裸 lms load 落到 LM Studio 全局 defaultContextLength 设置 —
-        # 本机曾被观察到按模型最大值 (262144/852736) 加载, 28GB+ 权重直接
-        # 打穿统一内存 (2026-08-22 多次实测)。取 min 是刻意收紧: 宁可截断
-        # 长上下文也不能放任失控加载。
-        context_length = min(
-            (
-                placement.context_limit
-                for placement in config.placements
-                if placement.backend_id == backend.id and placement.context_limit
-            ),
-            default=None,
-        )
+        # ⚠⚠⚠ **逐落点的上下文声明**（§5.70）：交给适配器**逐模型**算 `-c`。
+        #
+        # 旧实现是「该 backend 全部 placement 的最小 context_limit」，
+        # **default=None** ⇒ 没人声明就**不带 -c** ⇒ LM Studio 落到全局
+        # defaultContextLength（实测 262144）⇒ **路由承诺 32768、实到 262144**
+        # ⇒ 28GB+ 权重按最大上下文分配，直接打穿统一内存（2026-08-22 多次实测）。
+        #
+        # 现在改成：
+        # - **逐落点**（键 = `backend_model_id`，也就是 `lms load` 的实参）
+        #   ⇒ 小的声明不再把大的拖死；
+        # - 适配器内部用 `effective_context_limit()` 出数，
+        #   **声明只能收紧、实物是硬上限、都没说就回落 32768**
+        #   ⇒ `-c` **永远有值** ⇒ 与路由侧的承诺同源。
+        placement_context_limits = {
+            placement.backend_model_id: placement.context_limit
+            for placement in config.placements
+            if placement.backend_id == backend.id and placement.context_limit is not None
+        }
         # A backend can host more than one chat-role model (e.g. Ollama/LM
         # Studio serving several placements at once), so a single fixed probe
         # id can point at a model that isn't actually loaded while a sibling
@@ -1503,7 +1594,7 @@ def build_configured_adapters(
         adapters[backend.id] = build_configured_adapter(
             backend,
             tailscale=tailscale,
-            load_context_length=context_length,
+            placement_context_limits=placement_context_limits,
             default_ttl_seconds=default_ttl_seconds,
             probe_candidates=probe_candidates or None,
         )
@@ -1514,7 +1605,7 @@ def build_configured_adapter(
     backend: BackendConfig,
     *,
     tailscale: TailscaleAdapter | None = None,
-    load_context_length: int | None = None,
+    placement_context_limits: Mapping[str, int] | None = None,
     default_ttl_seconds: int | None = None,
     probe_candidates: frozenset[str] | None = None,
 ) -> BackendAdapter:
@@ -1524,6 +1615,7 @@ def build_configured_adapter(
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
             generation_probe=backend.readiness_probe == "generation",
+            credential_ref=backend.credential_ref,
         )
     elif backend.kind is BackendKind.OLLAMA:
         adapter = OllamaAdapter(
@@ -1531,13 +1623,23 @@ def build_configured_adapter(
             base_url=backend.base_url,
             probe_model_id=backend.probe_model_id or probe_candidates,
             generation_probe=backend.readiness_probe == "generation",
+            # ⚠⚠⚠ **§5.73：ollama 也要拿到逐落点的上下文声明** ——
+            #   不给 ⇒ 适配器只能回落 32768，而**实到由那台机器的 VRAM 决定**
+            #   （实测：MBP 262144 / mini 4096）⇒ **承诺与实到脱钩**。
+            placement_context_limits=placement_context_limits,
         )
     else:
+        loopback = is_loopback_url(backend.base_url)
         control_authorizer = (
             _lm_control_authorizer(backend, tailscale)
-            if backend.control_endpoint is not None and not is_loopback_url(backend.base_url)
+            if backend.control_endpoint is not None and not loopback
             else None
         )
+        # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就在本机（loopback）时，
+        # `lms` **直跑**即可 ⇒ **不开 SSH 通道** ⇒ **不开新的访问控制面**。
+        # ⚠ **SSH 优先**：配了 control_endpoint 就走 SSH（那是跨机部署的形态）。
+        # ⚠ **默认关**：不配 `lms_executable` ⇒ 仍是「无控制通道」的既有语义。
+        local_control = backend.control_endpoint is None and loopback and backend.lms_executable is not None
         adapter = LmStudioAdapter(
             backend_id=backend.id,
             base_url=backend.base_url,
@@ -1545,13 +1647,12 @@ def build_configured_adapter(
             generation_probe=backend.readiness_probe == "generation",
             ssh_target=backend.control_endpoint,
             known_hosts_file=backend.known_hosts_file,
+            lms_executable=backend.lms_executable,
+            local_control=local_control,
+            placement_context_limits=placement_context_limits,
             platform=LmsPlatform(backend.lms_platform),
             control_authorizer=control_authorizer,
-            load_options=(
-                LmsLoadOptions(context_length=load_context_length, ttl_seconds=default_ttl_seconds)
-                if load_context_length is not None or default_ttl_seconds is not None
-                else None
-            ),
+            load_options=(LmsLoadOptions(ttl_seconds=default_ttl_seconds) if default_ttl_seconds is not None else None),
         )
     return cast(BackendAdapter, adapter)
 

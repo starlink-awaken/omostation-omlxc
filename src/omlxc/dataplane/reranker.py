@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")  # 100% 本地红线
 
 SCHEMA = "omlxc.dataplane.reranker.v1"
 
-RERANK_MODEL = "BAAI/bge-reranker-large"
 LATENCY_BUDGET_MS = 30.0  # Top-50 contract
-FALLBACK_MODEL = "BAAI/bge-small-zh-v1.5"  # while reranker downloads / offline
+DEFAULT_MODEL_PATH = "/Volumes/Model/lmstudio/flaglow/BAAI-bge-reranker-v2-m3-mlx-fp16"
 
 
 def resolve_device() -> str:
@@ -31,44 +30,73 @@ def resolve_device() -> str:
 class RerankEngine:
     """Cross-encoder reranker with dense-ordering degradation."""
 
-    def __init__(self, model_name: str = RERANK_MODEL, device: str | None = None) -> None:
-        from sentence_transformers import CrossEncoder
+    _model: Any
+    _tokenizer: Any
+    _mx: Any
 
-        self.device = device or resolve_device()
+    def __init__(self, model_path: str | None = None, *, allow_download: bool = False) -> None:
+        self.device = resolve_device()
         self.fallback_reason: str | None = None
+        self.backend = "uninitialized"
+        path = model_path or os.environ.get("OMLXC_RERANK_MODEL", DEFAULT_MODEL_PATH)
+        if allow_download is False and not os.path.isdir(path):
+            self.fallback_reason = "model unavailable"
+            return
         try:
-            self._ce = CrossEncoder(model_name, device=self.device)
-            self.backend = "cross-encoder"
-        except Exception as exc:  # circuit_breaker: model absent/broken → dense fallback
-            from sentence_transformers import SentenceTransformer
+            # mlx_lm is a host runtime dependency on real MLX-serving nodes, not a
+            # package dependency for every client and CI runner.
+            import mlx.core as mx  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
+            from mlx_lm.utils import load  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
 
+            self._model, self._tokenizer = cast(tuple[Any, Any], load(path))
+            self._mx = mx
+            self.backend = "mlx-local"
+        except Exception as exc:
             self.fallback_reason = f"{type(exc).__name__}: {exc}"
-            self._fallback_bi = SentenceTransformer(FALLBACK_MODEL, device=self.device)
-            self.backend = "dense-fallback"
 
     def rerank(self, query: str, docs: list[str], top_k: int = 50) -> dict[str, Any]:
         """Score & order docs for query; returns ranking + timing metadata."""
         samples: list[float] = []
-        # Bound before the loop: the body always runs for range(3), but relying on
-        # that leaves scores/order undefined the moment the count becomes dynamic.
         scores: list[float] = []
         order: list[int] = []
+        if not docs:
+            return {
+                "schema": SCHEMA,
+                "backend": self.backend,
+                "device": self.device,
+                "elapsed_ms": 0.0,
+                "within_budget": True,
+                "ranking": [],
+                "top_doc": "",
+                "scores": [],
+                "degraded": self.backend != "mlx-local",
+                "fallback_reason": self.fallback_reason,
+            }
         for _ in range(3):  # median-of-3: steady-state, cold start excluded by warmup
             t0 = time.monotonic()
-            if self.backend == "cross-encoder":
-                pairs = [(query, d) for d in docs]
-                # sentence-transformers' CrossEncoder.predict overload set doesn't
-                # resolve under strict mode for this call shape.
-                scores = self._ce.predict(pairs).tolist()  # pyright: ignore[reportUnknownMemberType]
-            else:
-                # Same overload gap as above, on SentenceTransformer.encode.
-                qv = self._fallback_bi.encode(  # pyright: ignore[reportUnknownMemberType]
-                    [query], normalize_embeddings=True, convert_to_numpy=True
-                )[0]
-                dv = self._fallback_bi.encode(  # pyright: ignore[reportUnknownMemberType]
-                    docs, normalize_embeddings=True, convert_to_numpy=True
+            if self.backend == "mlx-local":
+                mx = self._mx
+
+                features = self._tokenizer._tokenizer(  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
+                    [(query, document) for document in docs],
+                    padding=True,
+                    truncation=True,
+                    max_length=512,
+                    return_tensors="np",
                 )
-                scores = (dv @ qv).tolist()
+                input_ids = mx.array(features["input_ids"])
+                attention_mask = mx.array(features["attention_mask"])
+                logits = cast(
+                    Any,
+                    self._model(  # type: ignore[no-any-return]  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                        input_ids,
+                        attention_mask,
+                    ),
+                )
+                mx.eval(logits)
+                scores = logits.reshape(-1).astype(mx.float32).tolist()
+            else:
+                raise RuntimeError("rerank model unavailable")
             samples.append((time.monotonic() - t0) * 1000)
             order = sorted(range(len(docs)), key=lambda i: -scores[i])
         samples.sort()
@@ -81,8 +109,8 @@ class RerankEngine:
             "within_budget": elapsed_ms <= LATENCY_BUDGET_MS,
             "ranking": order[:top_k],
             "top_doc": docs[order[0]] if docs else "",
-            "scores_head": [round(scores[i], 4) for i in order[:5]],
-            "degraded": self.backend != "cross-encoder",
+            "scores": [round(float(scores[index]), 4) for index in order],  # pyright: ignore[reportUnknownArgumentType]
+            "degraded": self.backend != "mlx-local",
             "fallback_reason": self.fallback_reason,
         }
 

@@ -6,7 +6,7 @@
 import os, json, socket, urllib.request, argparse, subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-OMLX_ROOT = os.environ.get("OMLX_ROOT", "/Volumes/Model/omlx")
+OMLX_ROOT = os.environ.get("OMLX_ROOT", os.path.expanduser("~/omlx"))
 CONF = os.path.join(OMLX_ROOT, "conf", "models.json")
 
 def load_conf():

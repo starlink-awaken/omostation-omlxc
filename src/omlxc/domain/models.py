@@ -181,6 +181,7 @@ class RouteRequest(DomainModel):
 
 class RouteDecision(DomainModel):
     request_id: str = Field(min_length=1)
+    requested_model: str = Field(min_length=1)
     selected_placement_id: str | None
     candidates: tuple[str, ...]
     candidate_scores: Mapping[str, float] = Field(default_factory=dict)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import Field, field_validator
 
+from omlxc.domain.context import effective_context_limit
 from omlxc.domain.models import DomainModel
 from omlxc.domain.protocols import (
     AdapterCapability,
@@ -109,6 +111,17 @@ def _mapping(value: object) -> Mapping[str, object] | None:
     return {str(key): item for key, item in raw.items()}
 
 
+def _positive_int(value: object) -> int | None:
+    """一个**严格**的正整数 —— ``bool`` 是 ``int`` 的子类，必须显式排除。
+
+    ⚠ 形状不同的面给同一个语义字段时，这条判据是**唯一的防线**：
+    一个 ``True`` 被当成 1 会把上下文上限变成 1（模型直接拒绝一切请求）。
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
+
+
 def _list(value: object) -> list[object] | None:
     return cast(list[object], value) if isinstance(value, list) else None
 
@@ -125,11 +138,14 @@ class LmStudioAdapter:
         generation_probe: bool = True,
         ssh_target: str | None = None,
         known_hosts_file: Path | None = None,
+        lms_executable: str | None = None,
+        local_control: bool = False,
         platform: LmsPlatform = LmsPlatform.MACOS,
         process_runner: ProcessRunner | None = None,
         control_authorizer: ControlAuthorizer | None = None,
         process_output_limit: int = DEFAULT_PROCESS_OUTPUT_LIMIT,
         load_options: LmsLoadOptions | None = None,
+        placement_context_limits: Mapping[str, int] | None = None,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -167,12 +183,30 @@ class LmStudioAdapter:
         self._probe_model_ids = probe_model_ids
         self._ssh_target = ssh_target
         self._known_hosts_file = known_hosts_file
+        # ⚠⚠⚠ **本地控制**（§5.69）：LM Studio 就跑在本机时，`lms` **直跑**，
+        # **不开 SSH 通道** ⇒ 不需要新的访问控制面。
+        # ⚠ **默认关**：必须同时给出 `lms_executable`（绝对路径）**且** 由上层
+        # 确认 `base_url` 是 loopback ⇒ 否则一律按「无控制通道」处理。
+        self._lms_executable = lms_executable
+        self._local_control = bool(local_control) and lms_executable is not None
+        self._base_port = parsed.port or (443 if parsed.scheme == "https" else 80)
         self._platform = LmsPlatform(platform)
         if process_output_limit <= 0:
             raise ValueError("process_output_limit must be positive")
         self._runner = process_runner or _DefaultProcessRunner(process_output_limit)
         self._control_authorizer = control_authorizer
         self._load_options = load_options or LmsLoadOptions()
+        # ⚠⚠⚠ **逐落点的上下文声明**（§5.70）：键是 LM Studio 的模型 key
+        # （= `placement.backend_model_id`，也就是 `lms load` 的那个实参），
+        # 值是 `placement.context_limit`（**人为的刻意收紧**）。
+        # ⚠ 为什么不用「后端级 min」：一个后端上有多条落点，各自有各的意图；
+        #   拿后端级 min 去压所有模型 ⇒ 小的把大的拖死（实测：一个后端上
+        #   8 条落点里最小声明 8194 ⇒ 全部模型都只能按 8194 加载）。
+        self._placement_context_limits = dict(placement_context_limits or {})
+        # ⚠ **实物真值**：原生面 `/api/v1/models` 的 `max_context_length`
+        #   （= 模型的物理上限）⇒ 声明超过物理上限时按物理上限算（fail-closed）。
+        #   每轮 inventory 刷新；原生面不可读时保持上一轮的已知值。
+        self._native_contexts: dict[str, int] = {}
         # discover() 每轮刷新的"当前已加载模型"缓存。chat/stream_chat 据此
         # 在发送前对未加载模型内联受控加载, 消灭"裸 HTTP 直接触发 LM Studio
         # JIT (按全局 defaultContextLength, 本机曾被观察到 262144) 打穿内存"
@@ -315,8 +349,89 @@ class LmStudioAdapter:
             *arguments,
         )
 
+    def _local_control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**本机控制**：`lms` 直接跑在 omlxcd 所在的机器上（**不经 SSH**）。
+
+        ⚠⚠⚠ **为什么需要它**（§5.69 实测）：
+        适配器原本只有**一条**控制通道 —— SSH ⇒
+        **「LM Studio 就跑在本机」这件事反而没法控制**（要为本机开一条 SSH 通道 ⇒ 访问控制红线）。
+        ⇒ 而 `composition.py` 的既有约定**已经写着「loopback ⇒ 不用 SSH」**
+        ⇒ ⇒ **缺的正是这一个本地模式**，不是缺一条 SSH 通道。
+
+        ⚠⚠⚠ **同一性校验是硬前提**：`lms` CLI 控制的是**本机默认那个 LM Studio 实例**，
+        而后端指向的 `base_url` **可能**是另一个实例 ⇒
+        ⇒ **控制命令会打到错的实例上** ⇒ **加载/卸载错模型**。
+        ⇒ ⇒ 每次控制前必须先 `lms server status` **核对端口**（见 `_verify_local_instance`），
+        **对不上就 fail-closed**（宁可没有控制通道，也不要控制错实例）。
+        """
+        if self._lms_executable is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local control channel is not configured",
+                detail={},
+            )
+        return (self._lms_executable, *arguments)
+
+    def _control_argv(self, arguments: tuple[str, ...]) -> tuple[str, ...]:
+        """**控制命令的 argv** —— 本机直跑 还是 走 SSH，由部署形态决定。"""
+        if self._local_control:
+            return self._local_control_argv(arguments)
+        return self._ssh_argv(arguments)
+
+    def _has_control_channel(self) -> bool:
+        """**有没有可用的控制通道** —— SSH 或 本机直跑。
+
+        ⚠ §5.69：**没有控制通道** ⇒ 加载路径只能「放行」（让 LM Studio 自己 JIT）
+        ⇒ 那正是 §5.67 记录的**内存洞**（按全局 defaultContextLength 打穿内存）。
+        """
+        return self._ssh_target is not None or self._local_control
+
+    async def _verify_local_instance(self) -> None:
+        """**核对 `lms` CLI 控制的实例 == 后端 `base_url` 指向的实例**（fail-closed）。
+
+        ⚠ **判据从实物推导**：`lms server status` 报的是**本机默认实例的端口**
+        （实测 MBP：「The server is running on port 1234.」）⇒
+        **端口一致 ⇒ 同一个实例**；**不一致 / 读不出来 ⇒ 不许控制**。
+        """
+        assert self._lms_executable is not None
+        try:
+            output = await self._runner((self._lms_executable, "server", "status"), 15.0)
+        except asyncio.CancelledError:
+            raise
+        except AdapterFailure:
+            raise
+        except (TimeoutError, OSError):
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            ) from None
+        # ⚠⚠⚠ **必须同时读 stdout 与 stderr**（§5.69 实测踩到）：
+        # `lms ps --json` / `lms ls --json` 写 **stdout**，
+        # 而 `lms server status` 这条**人话状态**写的是 **stderr** ⇒
+        # 只读 stdout ⇒ **永远解析不出端口** ⇒ fail-closed ⇒
+        # **所有落点变不可用**（实测：装上本地控制后 8 条 lm_studio 落点全变 unavailable）。
+        text = (output.stdout or "") + (output.stderr or "")
+        match = re.search(r"port\s+(\d+)", text)
+        if match is None:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance identity is unverifiable",
+                detail={},
+            )
+        if int(match.group(1)) != self._base_port:
+            raise AdapterFailure.from_detail(
+                code=AdapterErrorCode.UNSUPPORTED,
+                message="LM Studio local instance does not match the backend base_url",
+                detail={},
+            )
+
     async def _run_control(self, arguments: tuple[str, ...], *, timeout: float) -> ProcessOutput:
-        argv = self._ssh_argv(arguments)
+        argv = self._control_argv(arguments)
+        if self._local_control:
+            # ⚠⚠⚠ **控制前必须核对「同一个实例」** —— `lms` CLI 控制的是本机默认实例,
+            # 而 base_url 可能指向另一个 ⇒ 控制错实例 = 加载/卸载错模型。
+            await self._verify_local_instance()
         if self._control_authorizer is not None:
             assert self._ssh_target is not None
             try:
@@ -437,8 +552,69 @@ class LmStudioAdapter:
                 )
         return tuple(rows), None
 
+    async def _native_model_ids(self) -> tuple[str, ...]:
+        """Every model LM Studio has downloaded, as the ids the routing table uses."""
+        ids, _ = await self._native_inventory()
+        return ids
+
+    async def _native_inventory(self) -> tuple[tuple[str, ...], dict[str, int]]:
+        """LM Studio 原生面：已下载模型的 id 与**物理上下文上限**。
+
+        ``GET /api/v1/models`` is LM Studio's native surface: it lists every
+        downloaded model, and each entry's ``key`` is the identifier the routing
+        table references (``google/gemma-4-e2b``, ``qwen/qwen3-coder-next``, ...).
+        The OpenAI-compatible ``GET /v1/models`` lists only what is loaded, so on an
+        idle LM Studio it is empty and the backend looks model-less.
+
+        ⚠⚠⚠ **两个面的键名不一样**（§5.70 实测, 2026-10-24 08:12 · MBP）：
+
+        - REST 原生面 ``/api/v1/models`` ⇒ ``max_context_length``（**snake_case**）
+        - CLI ``lms ls --json`` / ``lms ps --json`` ⇒ ``maxContextLength``（**camelCase**）
+
+        ⇒ **读错键名会得到「96 个模型全是 null」的假象** ⇒ 两种拼法都收。
+        （⚠ 这不是"防御性编程"，是**实测踩过的坑**：先按 camelCase 读了 REST
+        面，得出"原生面没有上下文信息"的错误结论。）
+
+        Returns ``((), {})`` when the native surface is unavailable or unreadable;
+        the caller then keeps the previous (empty inventory) behaviour rather than
+        failing.
+        """
+        try:
+            response = await self._send("GET", "/api/v1/models")
+            if not response.is_success:
+                return (), {}
+            document = _mapping(cast(object, response.json()))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return (), {}
+        raw_models = _list(document.get("models")) if document is not None else None
+        if raw_models is None:
+            return (), {}
+        ids: list[str] = []
+        contexts: dict[str, int] = {}
+        for raw in raw_models:
+            item = _mapping(raw)
+            if item is None:
+                continue
+            key = item.get("key")
+            if not isinstance(key, str) or not key:
+                continue
+            try:
+                validate_model_token(key)
+            except ValueError:
+                continue
+            if key not in ids:
+                ids.append(key)
+            context_length = _positive_int(item.get("max_context_length"))
+            if context_length is None:
+                context_length = _positive_int(item.get("maxContextLength"))
+            if context_length is not None:
+                contexts[key] = context_length
+        return tuple(ids), contexts
+
     async def _probe_control(self) -> tuple[tuple[_ControlRow, ...] | None, AdapterError | None]:
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             return await self._probe_rest_state()
         try:
             output = await self._run_control(("ps", "--json"), timeout=15.0)
@@ -582,7 +758,12 @@ class LmStudioAdapter:
             # /api/v1/models、Ollama /api/ps、oMLX /v1/models/status), 能否生成交给真实流量的
             # placement 熔断器判定。合成推理探活会: 刷新 TTL 钉住模型; 思考型模型(Splash)在
             # token 预算内正文为空被误判; 模型忙时排队超时被误判 —— 并把后端上所有已加载模型一起判死。
-            generation_ready = True
+            # 2026-10-24: 必须同时要求 model_available —— CapabilitySnapshot 的校验器规定
+            # "generation_ready requires reachability, compatibility, and a model"。
+            # 无条件写 True 会让「库存为空」(LM Studio 空闲时 /v1/models 是空数组)直接抛
+            # ValidationError → probe 抛 → _fail_stale → 整个后端级 stale → 该后端所有落点全灭,
+            # 而且每 45 秒抛一次(实测 2026-10-05 起 3223 次)。这里要求有模型才谈得上「能生成」。
+            generation_ready = model_available
         elif probe_id is not None and probe_id in loaded_ids:
             # probe 用独立短超时: 探针模型可能正忙于长生成 (用户真实请求),
             # probe chat 会排在它后面。没有独立超时时, 排队会吃光 backend 级
@@ -667,6 +848,27 @@ class LmStudioAdapter:
                 continue
             if model_id not in http_ids:
                 http_ids.append(model_id)
+        # 2026-10-24: /v1/models 是 LM Studio 的 OpenAI 兼容面, 它只列「当前已加载」的模型;
+        # LM Studio 空闲时它是空数组 ⇒ 整个后端看起来一个模型都没有(实测 MBP: 磁盘上 96 个
+        # 已下载模型, /v1/models 的 data 是 [])。原生面 /api/v1/models 列的是「全部已下载」,
+        # 它的 key 就是路由表用的那个 id(例如 google/gemma-4-e2b)⇒ 让「已下载但未加载」的模型
+        # (JIT 可加载)不再凭空消失。
+        #
+        # ⚠⚠⚠ **必须是并集, 不能是「空才兜底」**（§5.69 实测踩到）：
+        # 「只列已加载」这个面**一旦非空**（实测: 加载了 minicpm-v-4.6 之后它就只列那 1 个）
+        # ⇒ **其余 7 个已下载模型会从库存里整体消失** ⇒ **它们的落点全部变 unavailable**
+        # ⇒ **后端级 stale 的另一种形态**：后端是 fresh 的, 但库存少了一大截。
+        # ⇒ ⇒ 原生面是**完整清单** ⇒ **恒取并集**。
+        native_ids, native_contexts = await self._native_inventory()
+        for native_id in native_ids:
+            if native_id not in http_ids:
+                http_ids.append(native_id)
+        # ⚠⚠⚠ **实物真值入库**（§5.70）：原生面的 `max_context_length` 是
+        # **模型的物理上限** ⇒ 声明超过它时按它算（fail-closed）。
+        # ⚠ 原生面这一轮读不到时**保留上一轮的已知值** ⇒ 不因为一次抖动
+        #   把「已知物理上限」降级成「不知道」。
+        if native_contexts:
+            self._native_contexts.update(native_contexts)
 
         control_rows, control_error = await self._probe_control()
         control_by_model: dict[str, _ControlRow] = {}
@@ -795,9 +997,18 @@ class LmStudioAdapter:
                 idempotency_key=idempotency_key,
             )
 
-        arguments = (
-            self._load_arguments(model_id, options) if load else ("unload", control_by_model[model_id].identifier)
-        )
+        if load:
+            # ⚠⚠⚠ **逐模型算上下文**（§5.70）：`-c` 必须**永远有值**。
+            # 旧实现是「后端级 min(各落点声明, default=None)」⇒ 没人声明就
+            # **不带 -c** ⇒ LM Studio 回落到全局 defaultContextLength
+            # （实测 262144）⇒ **路由承诺 32768、实到 262144** ⇒
+            # 28GB+ 权重按最大上下文分配，直接打穿统一内存（2026-08-22 实测）。
+            arguments = self._load_arguments(
+                model_id,
+                options.model_copy(update={"context_length": self._effective_load_context(model_id)}),
+            )
+        else:
+            arguments = ("unload", control_by_model[model_id].identifier)
         try:
             await self._run_control(arguments, timeout=300.0)
             verified, verify_error, _, _ = await self._list_models_with_control()
@@ -821,6 +1032,31 @@ class LmStudioAdapter:
             changed=True,
             idempotency_key=idempotency_key,
         )
+
+    def _effective_load_context(self, model_id: str) -> int:
+        """这个模型**实际以多少上下文加载**（§5.70）。
+
+        规则见 :func:`omlxc.domain.context.effective_context_limit`：
+
+        - ``声明``（``placement.context_limit``）只能**收紧**；
+        - ``实物``（原生面 ``max_context_length``）是**硬上限**；
+        - 谁都没说 ⇒ 回落 **32768**（既有口径，catalog 侧同一个兜底）。
+
+        ⚠⚠⚠ **绝不能返回 None**：返回 None 等于「不带 ``-c``」
+        ⇒ LM Studio 按全局默认加载 ⇒ 实测 262144 ⇒ 内存打穿。
+        ⇒ **这条分支必须 fail-closed。**
+
+        ⚠ ``load_options.context_length`` 仍然作为**上限**生效
+        （直接构造适配器的调用方可以用它压住所有模型）⇒ 只能更严，不能更松。
+        """
+        context_length = effective_context_limit(
+            self._placement_context_limits.get(model_id),
+            self._native_contexts.get(model_id),
+        )
+        ceiling = self._load_options.context_length
+        if ceiling is not None:
+            context_length = min(context_length, ceiling)
+        return context_length
 
     @staticmethod
     def _load_arguments(model_id: str, options: LmsLoadOptions) -> tuple[str, ...]:
@@ -1037,9 +1273,10 @@ class LmStudioAdapter:
         # 不拦截, 保留既有行为。
         if not self._loaded_cache_valid or model_id in self._known_loaded_ids:
             return None
-        if self._ssh_target is None:
+        if not self._has_control_channel():
             # 无控制通道时无从受控加载; 放行是既有行为 (JIT 风险由 LM Studio
-            # 全局设置兜底), 不在本修复范围内改变无 SSH 后端的语义。
+            # 全局设置兜底), 不在本修复范围内改变无控制通道后端的语义。
+            # ⚠⚠⚠ §5.69: **本机 LM Studio 现在有本地控制通道了** ⇒ 不再走这条放行路径。
             return None
         result = await self.load_model(model_id)
         if result.status in (OperationStatus.SUCCEEDED, OperationStatus.UNCHANGED):

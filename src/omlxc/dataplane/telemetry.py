@@ -24,6 +24,7 @@ class TelemetrySink(Protocol):
         success: bool,
         error_code: str | None = None,
         phase: str | None = None,
+        requested_model: str | None = None,
     ) -> bool: ...
 
 
@@ -54,6 +55,7 @@ class RouteTelemetryRecorder:
                 candidates=candidates,
                 rejections=plan.rejected,
                 config_revision=plan.config_version,
+                requested_model=plan.requested_model,
             )
         )
 
@@ -66,8 +68,19 @@ class RouteTelemetryRecorder:
         success: bool,
         error_code: str | None = None,
         phase: str | None = None,
+        requested_model: str | None = None,
     ) -> bool:
-        return store.accept_metric(MetricRecord(request_id, self._now(), latency_ms, success, error_code, phase))
+        return store.accept_metric(
+            MetricRecord(
+                request_id,
+                self._now(),
+                latency_ms,
+                success,
+                error_code,
+                phase,
+                requested_model,
+            )
+        )
 
 
 class BoundRouteTelemetry:
@@ -88,6 +101,7 @@ class BoundRouteTelemetry:
         success: bool,
         error_code: str | None = None,
         phase: str | None = None,
+        requested_model: str | None = None,
     ) -> bool:
         return self._recorder.record_metric(
             self._store,
@@ -96,4 +110,5 @@ class BoundRouteTelemetry:
             success=success,
             error_code=error_code,
             phase=phase,
+            requested_model=requested_model,
         )

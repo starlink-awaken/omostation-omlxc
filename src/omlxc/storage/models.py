@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 
@@ -53,6 +53,7 @@ class MetricRecord:
     success: bool
     error_code: str | None = None
     phase: str | None = None
+    requested_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +85,13 @@ class RouteAuditWrite:
     candidates: tuple[str, ...]
     rejections: Mapping[str, str]
     config_revision: str
+    requested_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RouteAuditRecord(RouteAuditWrite):
-    sequence: int
+    # Keyword-only so a defaulted base field never precedes a required subclass field.
+    sequence: int = field(kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

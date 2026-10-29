@@ -33,6 +33,12 @@ dependencies = [
 omlxc = "omlxc.cli:main"
 omlxcd = "omlxc.daemon:main"
 
+[project.optional-dependencies]
+mlx = [
+    "mlx>=0.32,<0.33",
+    "mlx-lm>=0.31.3,<0.32",
+]
+
 [dependency-groups]
 dev = [
     "pip-audit>=2.8",

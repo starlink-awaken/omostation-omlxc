@@ -574,3 +574,124 @@ def test_lmstudio_uses_the_shared_backend_neutral_process_primitive() -> None:
     assert lmstudio_module.ProcessOutputLimitError is process.ProcessOutputLimitError
     assert lmstudio_module._default_process_runner is process.default_process_runner
     assert TAILSCALE_STATUS_OUTPUT_LIMIT == 4 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# §5.71：一条「操作系统未知」的 peer 不得让整份快照失效
+#
+# 实测（measured_from 2026-10-24 09:05 · MBP · tailscale 1.104.2）：
+# tailscale 对认不出操作系统的 peer 报 ``OS: ""``（实测那条 peer 叫 ``muse``，
+# 其余 4 条都是 ``macOS`` / ``windows``）⇒ 旧判据 ``or not os_name`` 把
+# **整份快照**判成 INVALID_SNAPSHOT ⇒ **一条 peer 加入，全舰队授权失守**
+# （跨机 11 条落点全 stale，日志累计 25503 次 ``invalid shape``）。
+#
+# ⚠ **OS 不参与身份匹配**（``_full_match`` / ``_partial_match`` 都不看它）
+# ⇒ **容忍空串是零授权语义变化** —— 授权仍然只由身份字段决定。
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_peer_with_unknown_os_does_not_invalidate_the_whole_snapshot() -> None:
+    """**一条 peer 的 OS 未知，不得让其余 peer 一起失去授权。**
+
+    ⚠ 判据落在**授权结果**上（白名单里的节点仍然被授权），
+    不是落在「没抛异常」上。
+    """
+    document = _document()
+    peers = document["Peer"]
+    assert isinstance(peers, dict)
+    peers[_OTHER_KEY] = _row(
+        peer_id=_OTHER_ID,
+        public_key=_OTHER_KEY,
+        host_name="muse",
+        dns_name="muse.example.test.",
+        ips=["100.64.0.99", "fd7a:115c:a1e0::99"],
+        os_name="",
+    )
+    adapter = _adapter(policies=(_policy(),), process_runner=_runner_for(document))
+
+    snapshot = await adapter.snapshot()
+
+    assert [node.node_id for node in snapshot.nodes] == ["node-a"]
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_peer_with_unknown_os_is_still_authorized() -> None:
+    """**OS 未知不改变授权判定** —— 授权只由身份字段决定。
+
+    ⇒ 这条钉住「修复是零授权语义变化」：不是把未知 OS 当成拒绝，
+    也不是把它当成放行，而是**让身份字段独立说话**。
+    """
+    adapter = _adapter(
+        policies=(_policy(),),
+        process_runner=_runner_for(_document(peer=_row(os_name=""))),
+    )
+
+    snapshot = await adapter.snapshot()
+
+    assert [node.node_id for node in snapshot.nodes] == ["node-a"]
+    assert snapshot.nodes[0].os == ""
+
+
+@pytest.mark.asyncio
+async def test_unknown_os_must_still_be_a_string() -> None:
+    """⚠ **类型检查必须留着**：``OS: False`` 仍然判红。
+
+    （bool 是 int 的子类；把它当字符串会污染 OS 语义。）
+    """
+    adapter = _adapter(
+        policies=(_policy(),),
+        process_runner=_runner_for(_document(peer=_row(os_name=False))),
+    )
+
+    with pytest.raises(TailscaleFailure) as captured:
+        await adapter.snapshot()
+
+    assert captured.value.code is TailscaleErrorCode.INVALID_SNAPSHOT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("ID", ""),
+        ("PublicKey", ""),
+        ("HostName", ""),
+        ("TailscaleIPs", []),
+    ],
+)
+async def test_identity_fields_stay_strict_while_empty_os_is_tolerated(
+    field: str,
+    invalid: object,
+) -> None:
+    """**放宽 OS 不许顺手放宽身份字段。**
+
+    ⇒ 身份字段（ID / PublicKey / HostName / TailscaleIPs）一个都不能松 ——
+    它们才是授权的依据（``_full_match``）。
+    """
+    peer = _row(os_name="")
+    peer[field] = invalid
+    adapter = _adapter(policies=(_policy(),), process_runner=_runner_for(_document(peer=peer)))
+
+    with pytest.raises(TailscaleFailure) as captured:
+        await adapter.snapshot()
+
+    assert captured.value.code is TailscaleErrorCode.INVALID_SNAPSHOT
+
+
+@pytest.mark.asyncio
+async def test_peer_map_key_must_still_match_that_peers_public_key() -> None:
+    """**身份绑定**：``Peer`` 字典的键必须等于该条目的 ``PublicKey``。
+
+    ⚠ 这条不是重复检查 —— 它是 ``PublicKey`` 字段之外的**第二道**绑定：
+    少了它，一条 peer 就能用**别人的 key** 顶替进快照。
+    ⇒ ⚠ **实测踩过**：把 ``PublicKey`` 的正则判据去掉，表面看不出差别
+    （因为这条绑定先挡住了）⇒ **等价变异，不算数** ⇒ 必须有独立判据。
+    """
+    document = _document(peer_key=_OTHER_KEY)
+    adapter = _adapter(policies=(_policy(),), process_runner=_runner_for(document))
+
+    with pytest.raises(TailscaleFailure) as captured:
+        await adapter.snapshot()
+
+    assert captured.value.code is TailscaleErrorCode.INVALID_SNAPSHOT

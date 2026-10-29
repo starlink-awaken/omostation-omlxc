@@ -143,6 +143,7 @@ def test_domain_entities_are_strict_frozen_and_json_serializable() -> None:
     )
     decision = RouteDecision(
         request_id=request.request_id,
+        requested_model=request.model_id,
         selected_placement_id=placement.id,
         candidates=(placement.id,),
         rejected={},
@@ -336,6 +337,7 @@ def test_public_domain_containers_are_recursively_immutable_and_json_round_trip(
     )
     decision = RouteDecision(
         request_id=request.request_id,
+        requested_model=request.model_id,
         selected_placement_id=None,
         candidates=("placement-a",),
         rejected={"placement-a": "capacity"},

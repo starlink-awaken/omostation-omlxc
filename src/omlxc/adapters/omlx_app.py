@@ -37,6 +37,7 @@ from omlxc.domain.protocols import (
     TuneScope,
 )
 
+from .omlx_admin_sync import KeychainResolutionError, resolve_keychain_reference
 from .reasoning import ReasoningFilter
 from .security import AdapterFailure
 from .sse import SSEDecoder
@@ -56,8 +57,9 @@ _PROBE_CHAT_TIMEOUT = 5.0
 DEFAULT_MINIMUM_VERSION = (0, 5, 0)
 # 2026-08-26: 上界 (0,6,0) 拒掉了 oMLX App 0.6.x 自己(实测 0.6.2 →
 # compatible=False → 全 placement available=False → 409, 第六层终修)。
+# 2026-10-24: 0.7.2 复发同一种上界排除故障, 放行整个 0.7.x。
 # 上界语义 = 放行至下一主版本前的所有次版本。
-DEFAULT_MAXIMUM_VERSION = (0, 7, 0)
+DEFAULT_MAXIMUM_VERSION = (0, 8, 0)
 
 
 def _object_mapping(value: object) -> Mapping[str, object] | None:
@@ -94,6 +96,7 @@ class OmlxAppAdapter:
         base_url: str = "http://127.0.0.1:8000",
         probe_model_id: str | Iterable[str] | None = None,
         generation_probe: bool = True,
+        credential_ref: str | None = None,
         client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -129,7 +132,21 @@ class OmlxAppAdapter:
         self._minimum_version = minimum_version
         self._maximum_version = maximum_version
         self._owns_client = client is None
+        if credential_ref is not None and client is not None:
+            raise ValueError("credential_ref and client are mutually exclusive")
         self._client = client or httpx.AsyncClient(transport=transport, trust_env=False)
+        if credential_ref is None:
+            self._credential_header = None
+        else:
+            try:
+                credential = resolve_keychain_reference(credential_ref)
+            except KeychainResolutionError as exc:
+                raise AdapterFailure.from_detail(
+                    code=AdapterErrorCode.UNREACHABLE,
+                    message="could not resolve oMLX App credential",
+                    detail={},
+                ) from exc
+            self._credential_header = {"Authorization": f"Bearer {credential}"}
         self._timeout = _TIMEOUT
 
     async def aclose(self) -> None:
@@ -152,7 +169,7 @@ class OmlxAppAdapter:
                 method,
                 self._url(path),
                 json=payload,
-                headers=headers,
+                headers=headers if self._credential_header is None else {**self._credential_header, **(headers or {})},
                 timeout=self._timeout,
             )
         except httpx.TimeoutException as exc:

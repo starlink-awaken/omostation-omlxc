@@ -413,7 +413,11 @@ async def test_loaded_memory_denied_job_still_physically_unloads_and_postverifie
 ) -> None:
     config = _config(short_root, node_memory_gb=1)
     backend = ColdBackend(state=ModelRuntimeState.LOADED)
-    composition = build_production_daemon(config, adapters={"backend": cast(BackendAdapter, backend)})
+    composition = build_production_daemon(
+        config,
+        adapters={"backend": cast(BackendAdapter, backend)},
+        local_physical_memory_gb=1.0,
+    )
     server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
     await server.start()
     try:
@@ -485,7 +489,11 @@ async def test_unload_probe_failure_never_becomes_false_noop_success(short_root:
 async def test_load_memory_denied_never_calls_adapter_and_job_fails(short_root: Path) -> None:
     config = _config(short_root, node_memory_gb=1)
     backend = ColdBackend()
-    composition = build_production_daemon(config, adapters={"backend": cast(BackendAdapter, backend)})
+    composition = build_production_daemon(
+        config,
+        adapters={"backend": cast(BackendAdapter, backend)},
+        local_physical_memory_gb=1.0,
+    )
     server = DaemonServer(composition.app, socket_path=config.daemon.socket_path)
     await server.start()
     try:

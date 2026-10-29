@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import is_dataclass
@@ -50,6 +51,7 @@ MAX_TEXT_LENGTH = 100_000
 MAX_CHAT_TEXT_LENGTH = 512_000
 MAX_DOCUMENTS = 256
 REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_logger = logging.getLogger(__name__)
 
 
 class ApiError(Exception):
@@ -292,6 +294,15 @@ def create_app(
         except ApiError as exc:
             response = _error_response(request_id, exc.status, exc.code, exc.message)
         except Exception:
+            # 2026-10-24: 这个 except 原本把异常整个吞掉 —— 客户端只看到
+            # "E900 internal service error", 日志里一行都没有(实测: 请求 id 也查不到)。
+            # 排查一次真实故障时, 它把根因完全藏了起来 ⇒ 这里必须留下 traceback。
+            _logger.exception(
+                "unhandled error serving %s %s (request id %s)",
+                request.method,
+                request.url.path,
+                request_id,
+            )
             response = _error_response(request_id, 500, "E900", "internal service error")
         response.headers["X-OMLXC-Request-ID"] = request_id
         return response
@@ -643,6 +654,14 @@ def create_app(
             request_id=request_id, query=body.query, documents=body.documents
         )
         if execution.error is not None:
+            _logger.warning(
+                "rerank failed (request id %s): code=%s reason=%s",
+                request_id,
+                execution.error.code.value,
+                execution.error.reason,
+            )
+            if execution.error.code is ExecutionErrorCode.UNSUPPORTED:
+                return _openai_error(request_id, 400, "unsupported_feature")
             raise ApiError(503, "E300", "local rerank failed")
         headers = _final_route_headers(
             request_id,

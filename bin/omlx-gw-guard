@@ -1,8 +1,9 @@
 #!/bin/bash
 # omlx-gw-guard —— 被 launchd 托管，前台运行 LiteLLM 网关。
-# 挂载守卫：模型盘没挂就退出重试(由 launchd KeepAlive+ThrottleInterval 轮询)。
+# 挂载守卫：网关/模型盘没就绪就退出重试(由 launchd KeepAlive+ThrottleInterval 轮询)。
+# 2026-10-11: 控制面在 ~/omlx(内置盘); 权重在 SHAREDMODEL(BET-Y2Q4-T10-242)。
 export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
-ROOT=/Volumes/Model/omlx
+ROOT="${OMLX_ROOT:-$HOME/omlx}"
 CFG="$ROOT/gateway/litellm-config.yaml"
 BIN="$ROOT/gateway/venv/bin/litellm"
 
