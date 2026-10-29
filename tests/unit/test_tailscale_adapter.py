@@ -621,6 +621,9 @@ async def test_allowlisted_peer_with_unknown_os_is_still_authorized() -> None:
 
     ⇒ 这条钉住「修复是零授权语义变化」：不是把未知 OS 当成拒绝，
     也不是把它当成放行，而是**让身份字段独立说话**。
+
+    2026-10-29（PR #98）：空 OS 串从「原样保留」改为降级成 ``"unknown"``
+    （`_parse_peer`），判据本身（节点仍被授权）不变；这里同步断言新值。
     """
     adapter = _adapter(
         policies=(_policy(),),
@@ -630,7 +633,7 @@ async def test_allowlisted_peer_with_unknown_os_is_still_authorized() -> None:
     snapshot = await adapter.snapshot()
 
     assert [node.node_id for node in snapshot.nodes] == ["node-a"]
-    assert snapshot.nodes[0].os == ""
+    assert snapshot.nodes[0].os == "unknown"
 
 
 @pytest.mark.asyncio
